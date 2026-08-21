@@ -40,6 +40,16 @@ devrun 4174
 
 人工测试实例由 `launchctl submit` 托管，进程异常退出时会自动重新启动。正常停止或代码维护仍通过外部服务管理命令执行，避免由服务自身同步替换正在承载的进程。
 
+日常维护使用项目内的轻量服务控制入口：
+
+```bash
+./service.sh restart
+./service.sh status
+./service.sh stop
+```
+
+`restart` 只替换人工测试实例，在 launchd 中持续守护它，并依次检查固定端口、Mobile Web HTTP、Relay `/status` 和 `agent_connected`。`status` 执行同一组只读检查，通常不需要打开浏览器。只有前端交互发生变化时，才补充一次真实浏览器冒烟测试；纯服务重启不再承担完整 UI 验收的成本。
+
 生产构建和测试：
 
 ```bash

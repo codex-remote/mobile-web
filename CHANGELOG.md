@@ -13,6 +13,7 @@
 - Isolated HTTP/SSE Runtime adapter, connection inspector, event trace, and SSE parser tests.
 - Integrated root `start.sh` with parameter-selected fixed ports, dependency preflight, isolated port cleanup, readiness checks, colored status output, and LAN URLs.
 - Global `devrun` registrations for named and port-based Mobile Web startup.
+- Project-owned `service.sh` for launchd-backed restart, stop, and low-cost health checks covering the listener, Mobile Web HTTP, Relay, and Agent connection.
 
 ### Changed
 
@@ -21,6 +22,7 @@
 - Runtime history now syncs incrementally in the background on initial load, uses a renewable idempotency key, and automatically expands the selected project's restored sessions.
 - The default Run Server URL now follows the browser's current host instead of embedding the Mac's startup-time LAN address, so DHCP changes no longer leave the Agent falsely offline.
 - Client idempotency IDs now fall back to `crypto.getRandomValues` when `randomUUID` is unavailable on an HTTP LAN origin, keeping history sync, Session creation and Run submission functional from phones.
+- Routine restarts now use layered service checks; full browser smoke testing is reserved for frontend interaction changes.
 
 ### Pending
 
