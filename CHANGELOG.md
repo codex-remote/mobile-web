@@ -19,6 +19,8 @@
 - Removed the Mock Runtime and legacy endpoint adapter; the client now uses only Runtime v1 HTTPS/SSE.
 - New Session actions now show in-progress and visible failure states, remain actionable while the project catalog is loading, and reject duplicate submissions.
 - Runtime history now syncs incrementally in the background on initial load, uses a renewable idempotency key, and automatically expands the selected project's restored sessions.
+- The default Run Server URL now follows the browser's current host instead of embedding the Mac's startup-time LAN address, so DHCP changes no longer leave the Agent falsely offline.
+- Client idempotency IDs now fall back to `crypto.getRandomValues` when `randomUUID` is unavailable on an HTTP LAN origin, keeping history sync, Session creation and Run submission functional from phones.
 
 ### Pending
 

@@ -149,8 +149,11 @@ if [[ -n "$lan_ip" ]]; then
   lan_url="http://$lan_ip:$port/"
 fi
 runtime_host="${lan_ip:-127.0.0.1}"
-runtime_url="${VITE_RUNTIME_URL:-http://${runtime_host}:18775}"
-export VITE_RUNTIME_URL="$runtime_url"
+if [[ -n "${VITE_RUNTIME_URL:-}" ]]; then
+  runtime_url="$VITE_RUNTIME_URL"
+else
+  runtime_url="http://${runtime_host}:18775（页面自动跟随访问主机）"
+fi
 
 server_pid=""
 stop_server() {

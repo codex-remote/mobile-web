@@ -6,6 +6,8 @@ import { IconButton } from "./components/IconButton";
 import { NavigationDrawer } from "./components/NavigationDrawer";
 import { RuntimeInspector } from "./components/RuntimeInspector";
 import { createRuntimeClient, type RuntimeClient } from "./runtime/RuntimeClient";
+import { createClientId } from "./runtime/clientId";
+import { resolveRuntimeUrl } from "./runtime/runtimeUrl";
 import type {
   ApiProject,
   ApiRun,
@@ -21,7 +23,7 @@ import type {
 } from "./types";
 
 const defaultSettings: ConnectionSettings = {
-  baseUrl: import.meta.env.VITE_RUNTIME_URL || "http://127.0.0.1:18775",
+  baseUrl: resolveRuntimeUrl(import.meta.env.VITE_RUNTIME_URL, typeof window === "undefined" ? undefined : window.location),
   accessToken: "",
 };
 
@@ -70,7 +72,6 @@ export function App() {
   const running = isActiveStatus(selectedSession.status);
 
   useEffect(() => {
-    localStorage.setItem("codex-remote.runtime-url", settings.baseUrl);
     setHealthState("idle");
   }, [settings.baseUrl]);
 
@@ -204,7 +205,7 @@ export function App() {
     setSessionCreateState({ status: "creating", projectId, message: "正在新建会话…" });
     try {
       recordEvent("up", "session.create", projectId);
-      const created = await runtimeClient.createSession(projectId, "新会话", crypto.randomUUID());
+      const created = await runtimeClient.createSession(projectId, "新会话", createClientId());
       setSessions((current) => upsertSession(current, toSession(created, [])));
       setSelectedSessionId(created.session_id);
       setDrawerOpen(false);
@@ -221,7 +222,7 @@ export function App() {
 
   async function sendPrompt(prompt: string) {
     if (running || !selectedSessionId) return;
-    const runKey = crypto.randomUUID();
+    const runKey = createClientId();
     const optimisticUser: ChatMessage = { id: `pending_user_${runKey}`, role: "user", content: prompt, createdAt: currentTime() };
     const optimisticAssistant: ChatMessage = { id: `pending_assistant_${runKey}`, role: "assistant", content: "", createdAt: currentTime(), streaming: true, toolSteps: [] };
     updateSession(selectedSessionId, (session) => ({ ...session, status: "queued", preview: prompt, messages: [...session.messages, optimisticUser, optimisticAssistant] }));
@@ -421,7 +422,7 @@ async function syncHistoryFromAgent(
 ) {
   const keyName = "codex-remote.history-sync-idempotency-key";
   localStorage.removeItem("codex-remote.bootstrap-idempotency-key");
-  const key = localStorage.getItem(keyName) || crypto.randomUUID();
+  const key = localStorage.getItem(keyName) || createClientId();
   localStorage.setItem(keyName, key);
   recordEvent("up", "history.sync.start", "Mac Agent");
   const syncId = await client.startBootstrap(key, signal);
@@ -533,11 +534,7 @@ function isActiveStatus(status?: string): boolean {
 }
 
 function loadSettings(): ConnectionSettings {
-  if (typeof window === "undefined") return defaultSettings;
-  return {
-    baseUrl: import.meta.env.VITE_RUNTIME_URL || localStorage.getItem("codex-remote.runtime-url") || defaultSettings.baseUrl,
-    accessToken: "",
-  };
+  return defaultSettings;
 }
 
 function currentTime(withSeconds = false): string {
