@@ -22,6 +22,12 @@
 - Resume streams from a durable snapshot/cursor boundary; do not treat an open SSE connection as the source of truth.
 - Never persist access tokens in browser storage or logs.
 
+## Deployment
+
+- For a routine local redeploy of Mobile Web, Relay, and the matching Mac Agent, use the personal `redeploy-codexremote-mobileweb` skill or run `devrun crweb`.
+- Run `./deploy.sh --check` only when complete validation or all repository tests are explicitly requested. Do not replace the script with independent manual service restarts.
+- Preserve the script's deployment lock, health checks, and protection against synchronously restarting the Mac Agent from a Turn hosted by that Agent.
+
 ## Verification
 
 - Run `npm test` and `npm run build` after non-trivial changes.

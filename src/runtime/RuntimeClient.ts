@@ -2,13 +2,15 @@ import type {
   ApiProject,
   ApiRun,
   ApiSession,
-  ConnectionSettings,
+  BootstrapSyncJob,
   RuntimeEvent,
   SessionSnapshot,
   StartRunInput,
   StartRunResult,
+  SourceSnapshot,
 } from "../types";
 import { HttpRuntimeClient } from "./httpRuntimeClient";
+import { authSession } from "../auth/AuthSession";
 
 export interface RuntimeClient {
   checkHealth(signal?: AbortSignal): Promise<void>;
@@ -22,9 +24,10 @@ export interface RuntimeClient {
   streamSession(sessionId: string, after?: number, signal?: AbortSignal): AsyncGenerator<RuntimeEvent>;
   cancelRun(runId: string, signal?: AbortSignal): Promise<void>;
   startBootstrap(idempotencyKey: string, signal?: AbortSignal): Promise<string>;
-  getBootstrap(syncId: string, signal?: AbortSignal): Promise<{ status: string }>;
+  getBootstrap(syncId: string, signal?: AbortSignal): Promise<BootstrapSyncJob>;
+  getProjectSource(projectId: string, path: string, line?: number, contextLines?: number, signal?: AbortSignal): Promise<SourceSnapshot>;
 }
 
-export function createRuntimeClient(settings: ConnectionSettings): RuntimeClient {
-  return new HttpRuntimeClient(settings.baseUrl, settings.accessToken);
+export function createRuntimeClient(baseUrl: string): RuntimeClient {
+  return new HttpRuntimeClient(baseUrl, authSession);
 }

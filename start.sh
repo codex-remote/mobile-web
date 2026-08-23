@@ -31,6 +31,7 @@ ${BOLD}Codex Remote Mobile Web${RESET}
 用法:
   ./start.sh test       单独启动人工测试服务，固定端口 4174
   ./start.sh codex      单独启动 Codex 调试服务，固定端口 4173
+  ./start.sh gateway    启动统一局域网入口，固定端口 18774
   ./start.sh --help     显示帮助
 
 每次只启动所选模式，仅清理该模式对应端口，不影响另一个实例。
@@ -63,12 +64,16 @@ case "$mode" in
     port=4173
     label="Codex 调试"
     ;;
+  gateway)
+    port=18774
+    label="Mobile Web Gateway"
+    ;;
   -h|--help)
     usage
     exit 0
     ;;
   *)
-    failure "必须指定启动模式：test 或 codex"
+    failure "必须指定启动模式：test、codex 或 gateway"
     usage >&2
     exit 2
     ;;
@@ -77,19 +82,50 @@ esac
 project_dir="$(cd "$(dirname "$0")" && pwd)"
 cd "$project_dir"
 
-if ! command -v npm >/dev/null 2>&1; then
-  failure "未找到 npm，请先安装 Node.js。"
-  exit 1
-fi
+ensure_node_toolchain_path() {
+  local candidate_dir
 
-if ! command -v lsof >/dev/null 2>&1; then
-  failure "未找到 lsof，无法安全检查固定端口。"
-  exit 1
-fi
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
 
-if [[ ! -x "node_modules/.bin/vite" ]]; then
-  warning "前端依赖尚未安装，正在执行 npm install"
-  npm install
+  for candidate_dir in /opt/homebrew/bin /usr/local/bin; do
+    if [[ -x "${candidate_dir}/node" && -x "${candidate_dir}/npm" ]]; then
+      PATH="${candidate_dir}:${PATH:-/usr/bin:/bin}"
+      export PATH
+      return 0
+    fi
+  done
+}
+
+for required_tool in curl lsof; do
+  if ! command -v "${required_tool}" >/dev/null 2>&1; then
+    failure "未找到 ${required_tool}，无法启动服务。"
+    exit 1
+  fi
+done
+
+if [[ "$mode" == "gateway" ]]; then
+  if [[ ! -x "bin/mobile-web-gateway" ]]; then
+    failure "缺少已构建的 Gateway：${project_dir}/bin/mobile-web-gateway"
+    failure "请先从外部 Terminal 执行 ./deploy.sh，或手动构建 Gateway。"
+    exit 1
+  fi
+  if [[ ! -f "dist/index.html" ]]; then
+    failure "缺少已构建的 Mobile Web：${project_dir}/dist/index.html"
+    failure "请先从外部 Terminal 执行 ./deploy.sh，或运行 npm run build。"
+    exit 1
+  fi
+else
+  ensure_node_toolchain_path
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    failure "未找到 Node.js 和 npm；已检查当前 PATH、/opt/homebrew/bin 与 /usr/local/bin。"
+    exit 1
+  fi
+  if [[ ! -x "node_modules/.bin/vite" ]]; then
+    warning "前端依赖尚未安装，正在执行 npm install"
+    npm install
+  fi
 fi
 
 stop_port_listeners() {
@@ -115,7 +151,7 @@ stop_port_listeners() {
 
   remaining_pids="$(lsof -tiTCP:"$target_port" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "$remaining_pids" ]]; then
-    warning "进程未按时退出，强制释放端口 $target_port：${remaining_pids//$'\n'/, }"
+    warning "进程未按时退出，强制释放端口 ${target_port}：${remaining_pids//$'\n'/, }"
     for pid in $remaining_pids; do
       [[ "$pid" =~ ^[0-9]+$ ]] && kill -KILL "$pid" 2>/dev/null || true
     done
@@ -144,15 +180,18 @@ stop_port_listeners "$port"
 
 lan_ip="$(detect_lan_ip)"
 local_url="http://127.0.0.1:$port/"
+ready_url="$local_url"
+if [[ "$mode" == "gateway" ]]; then
+  ready_url="http://127.0.0.1:$port/gateway/healthz"
+fi
 lan_url=""
 if [[ -n "$lan_ip" ]]; then
   lan_url="http://$lan_ip:$port/"
 fi
-runtime_host="${lan_ip:-127.0.0.1}"
-if [[ -n "${VITE_RUNTIME_URL:-}" ]]; then
-  runtime_url="$VITE_RUNTIME_URL"
+if [[ "$mode" == "gateway" ]]; then
+  runtime_url="${GATEWAY_RUN_SERVER_URL:-http://127.0.0.1:18775}（同源代理）"
 else
-  runtime_url="http://${runtime_host}:18775（页面自动跟随访问主机）"
+  runtime_url="http://127.0.0.1:18775（Vite /v1 开发代理）"
 fi
 
 server_pid=""
@@ -174,8 +213,16 @@ printf '项目目录  %s\n' "$project_dir"
 printf 'Run Server %s\n' "$runtime_url"
 printf '%s────────────────────────────────%s\n' "$DIM" "$RESET"
 
-info "正在启动 Vite 开发服务"
-"node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &
+if [[ "$mode" == "gateway" ]]; then
+  info "正在启动 Gateway"
+  "${project_dir}/bin/mobile-web-gateway" --listen "0.0.0.0:$port" --static "${project_dir}/dist" &
+elif [[ "$mode" == "codex" ]]; then
+  info "正在启动带 Loopback 自动鉴权的 Vite 调试服务"
+  VITE_CODEXREMOTE_AUTO_AUTH=1 "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &
+else
+  info "正在启动 Vite 开发服务"
+  "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &
+fi
 server_pid=$!
 
 for _ in {1..40}; do
@@ -184,7 +231,7 @@ for _ in {1..40}; do
     failure "$label 服务在端口打开前退出。"
     exit 1
   fi
-  if curl -fsS "$local_url" >/dev/null 2>&1; then
+  if curl -fsS "$ready_url" >/dev/null 2>&1; then
     printf '\n'
     success "$label 服务已就绪"
     printf '本机地址  %s%s%s\n' "$BOLD" "$local_url" "$RESET"
@@ -199,7 +246,7 @@ for _ in {1..40}; do
   sleep 0.25
 done
 
-if ! curl -fsS "$local_url" >/dev/null 2>&1; then
+if ! curl -fsS "$ready_url" >/dev/null 2>&1; then
   failure "等待 $label 服务就绪超时。"
   exit 1
 fi

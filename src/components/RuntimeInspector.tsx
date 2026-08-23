@@ -1,15 +1,14 @@
-import { ArrowDown, ArrowUp, Check, CircleAlert, Eraser, Radio, X } from "lucide-react";
-import type { ConnectionSettings, InspectorEvent } from "../types";
+import { ArrowDown, ArrowUp, CircleCheck, CircleX, Eraser, LoaderCircle, LogOut, Radio, X } from "lucide-react";
+import { authSession } from "../auth/AuthSession";
+import type { InspectorEvent } from "../types";
 import { IconButton } from "./IconButton";
 
 type HealthState = "idle" | "checking" | "healthy" | "failed";
 
 type RuntimeInspectorProps = {
   open: boolean;
-  settings: ConnectionSettings;
   events: InspectorEvent[];
   healthState: HealthState;
-  onChangeSettings: (settings: ConnectionSettings) => void;
   onCheckHealth: () => void;
   onClearEvents: () => void;
   onClose: () => void;
@@ -17,10 +16,8 @@ type RuntimeInspectorProps = {
 
 export function RuntimeInspector({
   open,
-  settings,
   events,
   healthState,
-  onChangeSettings,
   onCheckHealth,
   onClearEvents,
   onClose,
@@ -43,31 +40,19 @@ export function RuntimeInspector({
             onCheckHealth();
           }}
         >
-          <div className="connection-form">
-            <label>
-              <span>Run Server 地址</span>
-              <input
-                type="url"
-                value={settings.baseUrl}
-                onChange={(event) => onChangeSettings({ ...settings, baseUrl: event.target.value })}
-                placeholder="https://runtime.example.com"
-              />
-            </label>
-            <label>
-              <span>Access Token</span>
-              <input
-                type="password"
-                value={settings.accessToken}
-                onChange={(event) => onChangeSettings({ ...settings, accessToken: event.target.value })}
-                placeholder="只保存在当前页面"
-                autoComplete="off"
-              />
-            </label>
-          </div>
-
           <button className="health-check-button" type="submit" disabled={healthState === "checking"}>
-            {healthState === "healthy" ? <Check size={15} /> : healthState === "failed" ? <CircleAlert size={15} /> : <Radio size={15} />}
+            {healthState === "healthy"
+              ? <CircleCheck size={15} />
+              : healthState === "failed"
+                ? <CircleX size={15} />
+                : healthState === "checking"
+                  ? <LoaderCircle className="status-loading-icon" size={15} />
+                  : <Radio size={15} />}
             {healthLabel(healthState)}
+          </button>
+          <button className="auth-signout-button" type="button" onClick={() => void authSession.logout()}>
+            <LogOut size={15} />
+            退出此设备
           </button>
         </form>
 
