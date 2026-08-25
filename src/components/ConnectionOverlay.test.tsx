@@ -6,7 +6,7 @@ import { ConnectionOverlay } from "./ConnectionOverlay";
 const failure: RuntimeFailure = {
   kind: "timeout",
   title: "Run Server 响应超时",
-  detail: "127.0.0.1:18775 在 8 秒内没有响应。",
+  detail: "127.0.0.1:18775 在规定时间内没有响应。",
   action: "检查服务进程。",
   technicalDetail: "CONNECTION_TIMEOUT",
 };

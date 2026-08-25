@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -34,8 +35,11 @@ func main() {
 		logger.Error("configure Gateway", "error", err)
 		os.Exit(2)
 	}
+	requestContext, cancelRequests := context.WithCancel(contextBackground())
+	defer cancelRequests()
 	server := &http.Server{
 		Addr: conf.listenAddr, Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 90 * time.Second,
+		BaseContext: func(net.Listener) context.Context { return requestContext },
 	}
 	ctx, stop := signal.NotifyContext(contextBackground(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -51,11 +55,9 @@ func main() {
 			os.Exit(1)
 		}
 	case <-ctx.Done():
-		shutdownContext, cancel := contextWithTimeout(10 * time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			logger.Error("Gateway shutdown failed", "error", err)
-			os.Exit(1)
+		cancelRequests()
+		if err := server.Close(); err != nil {
+			logger.Warn("Close Gateway HTTP server", "error", err)
 		}
 	}
 }
@@ -155,6 +157,10 @@ func spaHandler(directory string) (http.Handler, error) {
 			return
 		}
 		cleaned := path.Clean("/" + r.URL.Path)
+		if cleaned == "/poll" {
+			http.NotFound(w, r)
+			return
+		}
 		candidate := filepath.Join(absolute, filepath.FromSlash(strings.TrimPrefix(cleaned, "/")))
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			fileServer.ServeHTTP(w, r)

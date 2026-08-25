@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpRuntimeClient } from "./httpRuntimeClient";
+import { resolveRuntimeTransportMode } from "./RuntimeClient";
 
 describe("HttpRuntimeClient connection failures", () => {
   afterEach(() => {
@@ -68,5 +69,104 @@ describe("HttpRuntimeClient connection failures", () => {
     await expect(client.listProjects()).resolves.toEqual({ items: [], agentPresence: "online" });
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads a JSON event batch through the polling transport", async () => {
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("Accept")).toBe("application/json");
+      return Promise.resolve(new Response(JSON.stringify({
+        success: true,
+        data: {
+          events: [{ id: "4", type: "assistant.delta", run_id: "run-1", delta: "hello" }],
+          next_cursor: 4,
+          has_more: false,
+          timed_out: false,
+          terminal: true,
+          status: "completed",
+        },
+        meta: { schema_version: 1 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "poll");
+
+    const events = [];
+    for await (const event of client.watchRun("run-1", 3)) events.push(event);
+
+    expect(events).toEqual([{ id: "4", type: "assistant.delta", run_id: "run-1", runId: "run-1", delta: "hello" }]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=3&wait_ms=15000&limit=100",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("continues polling after an empty timeout without yielding a synthetic event", async () => {
+    const responses = [
+      { events: [], next_cursor: 3, has_more: false, timed_out: true, terminal: false, status: "running" },
+      { events: [{ id: "4", type: "turn.completed", run_id: "run-1" }], next_cursor: 4, has_more: false, timed_out: false, terminal: true, status: "completed" },
+    ];
+    const fetchMock = vi.fn((_url: string) => Promise.resolve(new Response(JSON.stringify({
+      success: true,
+      data: responses.shift(),
+      meta: { schema_version: 1 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "poll");
+
+    const events = [];
+    for await (const event of client.watchRun("run-1", 3)) events.push(event);
+
+    expect(events.map((event) => event.type)).toEqual(["turn.completed"]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=3&wait_ms=15000&limit=100",
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=3&wait_ms=15000&limit=100",
+    ]);
+  });
+
+  it("advances the polling cursor across bounded event batches", async () => {
+    const responses = [
+      { events: [{ id: "4", type: "assistant.delta", run_id: "run-1", delta: "a" }], next_cursor: 4, has_more: true, timed_out: false, terminal: false, status: "running" },
+      { events: [{ id: "5", type: "turn.completed", run_id: "run-1" }], next_cursor: 5, has_more: false, timed_out: false, terminal: true, status: "completed" },
+    ];
+    const fetchMock = vi.fn((_url: string) => Promise.resolve(new Response(JSON.stringify({
+      success: true,
+      data: responses.shift(),
+      meta: { schema_version: 1 },
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "poll");
+
+    const events = [];
+    for await (const event of client.watchRun("run-1", 3)) events.push(event);
+
+    expect(events.map((event) => event.id)).toEqual(["4", "5"]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=3&wait_ms=15000&limit=100",
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=4&wait_ms=15000&limit=100",
+    ]);
+  });
+
+  it("preserves the existing SSE watch path", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(
+      "id: 5\nevent: turn.completed\ndata: {\"type\":\"turn.completed\",\"run_id\":\"run-1\"}\n\n",
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "sse");
+
+    const events = [];
+    for await (const event of client.watchRun("run-1", 4)) events.push(event);
+
+    expect(events.map((event) => event.type)).toEqual(["turn.completed"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://runtime.example.com/v1/runtime/runs/run-1/events?after=4",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+});
+
+describe("Runtime transport entry selection", () => {
+  it("uses the build-selected transport without a route-specific override", () => {
+    expect(resolveRuntimeTransportMode()).toBe("sse");
   });
 });

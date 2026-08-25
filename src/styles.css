@@ -1406,9 +1406,9 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: 25px minmax(0, auto) 24px;
   align-items: center;
-  width: fit-content;
+  width: min(100%, 520px);
   max-width: 100%;
-  min-height: 36px;
+  min-height: 38px;
   margin-top: 13px;
   padding: 4px 9px 4px 5px;
   overflow: hidden;
@@ -1418,18 +1418,6 @@ summary:focus-visible {
   background: color-mix(in srgb, var(--surface) 88%, var(--green-muted));
   font-size: 11px;
   font-weight: 650;
-  isolation: isolate;
-}
-
-.live-activity::after {
-  position: absolute;
-  inset: 0 auto 0 -35%;
-  z-index: -1;
-  width: 32%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.92), transparent);
-  content: "";
-  transform: skewX(-16deg);
-  animation: activity-scan 1.75s ease-in-out infinite;
 }
 
 .live-activity-icon {
@@ -1443,11 +1431,30 @@ summary:focus-visible {
 }
 
 .live-activity-copy {
+  position: relative;
+  display: block;
   min-width: 0;
+  min-height: 16px;
   padding: 0 7px;
+  overflow: hidden;
+}
+
+.live-activity-copy > span {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  animation: activity-copy-enter 160ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.live-activity-completed {
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+}
+
+.live-activity-completed .live-activity-icon {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 10%, white);
 }
 
 .live-activity-dots {
@@ -1528,6 +1535,7 @@ summary:focus-visible {
   overflow: hidden;
   font-size: 10px;
   font-weight: 520;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1544,6 +1552,13 @@ summary:focus-visible {
   padding: 0 0 9px 25px;
 }
 
+.tool-process[open] .tool-step-list {
+  height: clamp(116px, 22vh, 220px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .tool-process:not([open]) .tool-step-list {
   display: none;
 }
@@ -1554,6 +1569,7 @@ summary:focus-visible {
   min-height: 39px;
   padding: 6px 0;
   border-top: 1px solid var(--border);
+  animation: tool-step-enter 160ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 .tool-step-indicator {
@@ -2275,15 +2291,19 @@ summary:focus-visible {
   50% { opacity: 0.82; }
 }
 
-@keyframes activity-scan {
-  0% { left: -42%; opacity: 0; }
-  18% { opacity: 0.72; }
-  70%, 100% { left: 112%; opacity: 0; }
+@keyframes activity-copy-enter {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes activity-dot {
   0%, 65%, 100% { opacity: 0.28; transform: translateY(0); }
   32% { opacity: 1; transform: translateY(-2px); }
+}
+
+@keyframes tool-step-enter {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes turn-duration-shimmer {

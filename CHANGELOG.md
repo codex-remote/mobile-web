@@ -11,6 +11,8 @@
 - Multi-tab discovery of Runs created in the same Session and PostgreSQL-backed history restoration.
 - Real Mac Agent browser acceptance on desktop and 390x844 mobile viewports.
 - Isolated HTTP/SSE Runtime adapter, connection inspector, event trace, and SSE parser tests.
+- Added a selectable JSON polling Runtime transport with new-entry `dev:poll` startup, bounded request timeout, cursor-based event batches, and the existing SSE transport preserved.
+- Added a `devrun crweb` full-stack path that builds and runs the source-worktree Relay, Mac Agent, and Gateway under the isolated `com.codexremote.runtime.dev` Supervisor LaunchAgent, while retaining direct Vite modes for fast frontend work.
 - Integrated root `start.sh` with parameter-selected fixed ports, dependency preflight, isolated port cleanup, readiness checks, colored status output, and LAN URLs.
 - Global `devrun` registrations for named and port-based Mobile Web startup.
 - The project drawer now provides an explicit Mac history refresh action with accessible processed/total progress and a visible completion summary.
@@ -50,6 +52,10 @@
 
 ### Fixed
 
+- Poll transport now owns its continuous long-poll loop: empty timeouts no longer trigger visible Session refreshes, real Session-event refreshes stay in the background, and active streamed messages are protected from a lagging snapshot to prevent periodic layout and scroll jitter.
+- The Supervisor-based `crweb` deployment now rebuilds Relay and Mac Agent before restart, preventing a stale Relay binary from returning 404 for newly added Runtime routes such as `events:poll`.
+- Supervisor restarts now cancel long-poll requests, wait for Gateway/Relay/Auth ports to exit, and force-close any request that exceeds the graceful shutdown deadline instead of failing the replacement stack.
+- The development Supervisor now defaults the Mac Agent workspace root to the current user's home directory instead of the `codexremote` source directory, restoring discovery of sibling workspaces while retaining the `CODEXREMOTE_WORKSPACE_ROOT` override.
 - Gateway launchd startup now runs prebuilt frontend and Gateway artifacts without requiring Go or Node.js in the daemon PATH, and its service health is independent from Relay/Agent availability.
 - Safari can now process a fresh one-time pairing link when it reuses an existing `/pair` tab: fragment changes are observed, pairing exchanges are serialized, and duplicate delivery of the same code is ignored within the page session.
 

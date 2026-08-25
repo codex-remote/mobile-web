@@ -36,13 +36,13 @@ func allowedProxyRoute(method, requestPath string) bool {
 		if len(segments) == 4 && segments[2] == "sessions" {
 			return true
 		}
-		if len(segments) == 5 && segments[2] == "sessions" && (segments[4] == "runs" || segments[4] == "events") {
+		if len(segments) == 5 && segments[2] == "sessions" && (segments[4] == "runs" || segments[4] == "events" || segments[4] == "events:poll") {
 			return true
 		}
 		if len(segments) == 4 && segments[2] == "runs" {
 			return true
 		}
-		if len(segments) == 5 && segments[2] == "runs" && segments[4] == "events" {
+		if len(segments) == 5 && segments[2] == "runs" && (segments[4] == "events" || segments[4] == "events:poll") {
 			return true
 		}
 		if len(segments) == 4 && segments[2] == "bootstrap-syncs" {

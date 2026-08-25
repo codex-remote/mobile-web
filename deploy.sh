@@ -10,12 +10,15 @@ project_dir="$(cd "$(dirname "$0")" && pwd)"
 workspace_dir="$(cd "${project_dir}/.." && pwd)"
 relay_dir="${workspace_dir}/relay-server"
 agent_dir="${workspace_dir}/mac-agent"
+runtime_distribution_dir="${workspace_dir}/runtime-distribution"
 run_dir="${project_dir}/.run/mobileweb"
 lock_dir="${run_dir}/deploy.lock"
 go_cache_dir="${CODEXREMOTE_GO_CACHE:-/private/tmp/codexremote-go-cache}"
+event_transport=sse
 gateway_port=18874
 relay_port=18875
 auth_control_port=18876
+supervisor_bin="${project_dir}/bin/codex-remote-dev-supervisor"
 run_checks=0
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -39,8 +42,8 @@ usage() {
 Codex Remote Mobile Web 快速部署
 
 用法:
-  ./deploy.sh [--quick]   构建并重启 Mobile Web、Relay 和 Mac Agent
-  ./deploy.sh --check     先运行三个仓库的测试，再执行相同部署
+  ./deploy.sh [--quick] [sse|poll]   构建并重启一种 Mobile Web 传输模式
+  ./deploy.sh --check [sse|poll]     先运行测试，再执行指定模式部署
   ./deploy.sh --help      显示帮助
 
 此脚本必须从 Terminal 或 Codex Desktop 执行，不能由将被重启的 Mac Agent Turn 调用。
@@ -115,7 +118,7 @@ run_logged() {
 }
 
 build_mobile_web() {
-  (cd "${project_dir}" && npm run build -- --logLevel error)
+  (cd "${project_dir}" && VITE_RUNTIME_EVENT_TRANSPORT="${event_transport}" npm run build -- --logLevel error)
 }
 
 build_gateway() {
@@ -123,20 +126,38 @@ build_gateway() {
   (cd "${project_dir}/gateway" && go build -o "${project_dir}/bin/mobile-web-gateway" .)
 }
 
-restart_runtime() {
-  "${agent_dir}/dev" mobileweb-debug
+build_relay() {
+  make -C "${relay_dir}" build
 }
 
-restart_gateway() {
-  "${project_dir}/service.sh" restart gateway-debug
+build_mac_agent() {
+  make -C "${agent_dir}" build
 }
 
-restart_codex_web() {
-  "${project_dir}/service.sh" restart codex
+build_dev_supervisor() {
+  mkdir -p "${project_dir}/bin"
+  (cd "${runtime_distribution_dir}" && go build -o "${supervisor_bin}" ./cmd/codex-remote)
 }
 
-restart_test_web() {
-  "${project_dir}/service.sh" restart test
+stop_legacy_runtime() {
+  launchctl remove com.ai-coding-remote.relay.mobileweb-debug >/dev/null 2>&1 || true
+  launchctl remove com.ai-coding-remote.mac-agent.mobileweb-debug >/dev/null 2>&1 || true
+  launchctl remove com.codexremote.runtime.dev >/dev/null 2>&1 || true
+  launchctl remove com.codexremote.runtime.dev.sse >/dev/null 2>&1 || true
+  launchctl remove com.codexremote.runtime.dev.poll >/dev/null 2>&1 || true
+  "${project_dir}/service.sh" stop gateway-debug >/dev/null 2>&1 || true
+  "${project_dir}/service.sh" stop codex >/dev/null 2>&1 || true
+  "${project_dir}/service.sh" stop test >/dev/null 2>&1 || true
+  for port in "${gateway_port}" "${relay_port}"; do
+    for _ in {1..40}; do
+      [[ -z "$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)" ]] && break
+      sleep 0.1
+    done
+  done
+}
+
+restart_supervised_runtime() {
+  "${project_dir}/service.sh" restart supervised "${event_transport}"
 }
 
 running_inside_mobileweb_agent() {
@@ -169,6 +190,7 @@ run_full_checks() {
   local mobile_pid
   local relay_pid
   local agent_pid
+  local distribution_pid
   local failed=0
 
   info "并行运行三个仓库的测试"
@@ -178,10 +200,13 @@ run_full_checks() {
   relay_pid=$!
   (cd "${agent_dir}" && go test ./...) &
   agent_pid=$!
+  (cd "${runtime_distribution_dir}" && go test ./...) &
+  distribution_pid=$!
 
   wait "${mobile_pid}" || failed=1
   wait "${relay_pid}" || failed=1
   wait "${agent_pid}" || failed=1
+  wait "${distribution_pid}" || failed=1
   (cd "${project_dir}/gateway" && go test ./...) || failed=1
   if [[ "${failed}" -ne 0 ]]; then
     failure "测试未通过，未重启任何服务。"
@@ -198,6 +223,14 @@ while [[ "$#" -gt 0 ]]; do
       run_checks=1
       shift
       ;;
+    sse|poll)
+      if [[ "${event_transport}" != "sse" ]]; then
+        failure "只能指定一个传输模式：sse 或 poll。"
+        exit 2
+      fi
+      event_transport="$1"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -209,6 +242,13 @@ while [[ "$#" -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${event_transport}" == "poll" ]]; then
+  gateway_port=18884
+  relay_port=18885
+  auth_control_port=18886
+fi
+transport_label="$(printf '%s' "${event_transport}" | tr '[:lower:]' '[:upper:]')"
 
 if running_inside_mobileweb_agent; then
   failure "拒绝从 mobileweb Mac Agent 承载的 Turn 内同步重启该 Agent。"
@@ -222,6 +262,10 @@ for required_path in "${relay_dir}/run" "${relay_dir}/pairqr.sh" "${agent_dir}/d
     exit 1
   fi
 done
+if [[ ! -d "${runtime_distribution_dir}/cmd/codex-remote" ]]; then
+  failure "缺少 Runtime Supervisor 源码目录：${runtime_distribution_dir}/cmd/codex-remote"
+  exit 1
+fi
 
 for tool in curl go launchctl lsof make node npm ps; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
@@ -255,12 +299,12 @@ info "正在构建并启动 Mobile Web..."
 run_logged "构建 Mobile Web" "${run_dir}/frontend-build.log" build_mobile_web
 
 run_logged "构建 Mobile Web Gateway" "${run_dir}/gateway-build.log" build_gateway
+run_logged "构建 Relay Server" "${run_dir}/relay-build.log" build_relay
+run_logged "构建 Mac Agent" "${run_dir}/agent-build.log" build_mac_agent
+run_logged "构建开发 Runtime Supervisor" "${run_dir}/supervisor-build.log" build_dev_supervisor
 
-run_logged "重启 Run Server 与 Mac Agent" "${run_dir}/runtime-restart.log" restart_runtime
-
-run_logged "重启 Mobile Web Gateway" "${run_dir}/gateway-restart.log" restart_gateway
-run_logged "重启 Codex Web" "${run_dir}/codex-web-restart.log" restart_codex_web
-run_logged "重启 Test Web" "${run_dir}/test-web-restart.log" restart_test_web
+run_logged "停止旧的独立开发服务" "${run_dir}/legacy-stop.log" stop_legacy_runtime
+run_logged "启动开发 Runtime Supervisor" "${run_dir}/supervisor-restart.log" restart_supervised_runtime
 
 status_json="$(curl -fsS --max-time 3 "http://127.0.0.1:${relay_port}/status")"
 if [[ "${status_json}" != *'"agent_connected":true'* ]]; then
@@ -278,17 +322,21 @@ printf '\n'
 box_open "MOBILE WEB"
 box_row "STATUS" "READY · ${SECONDS}s · AGENT CONNECTED"
 if [[ -n "${lan_ip}" ]]; then
-  box_row "ADDRESS" "http://${lan_ip}:${gateway_port}/" "${CYAN}"
+  box_row "MODE" "${transport_label}" "${CYAN}"
+  box_row "ENTRY" "http://${lan_ip}:${gateway_port}/" "${CYAN}"
 else
-  box_row "ADDRESS" "http://127.0.0.1:${gateway_port}/" "${CYAN}"
+  box_row "MODE" "${transport_label}" "${CYAN}"
+  box_row "ENTRY" "http://127.0.0.1:${gateway_port}/" "${CYAN}"
 fi
 if [[ -t 1 ]]; then
-  box_row "PAIRING" "SCAN QR · ONE TIME · 10 MIN" "${YELLOW}"
+  box_row "PAIRING" "${transport_label} QR · ONE TIME · 10 MIN" "${YELLOW}"
   box_close
+  info "${transport_label} 配对二维码"
   CODEX_REMOTE_GATEWAY_PORT="${gateway_port}" \
     "${relay_dir}/pairqr.sh" \
       --origin "http://${lan_ip:-127.0.0.1}:${gateway_port}" \
       --control-url "http://127.0.0.1:${auth_control_port}" \
+      --name "Mobile Web ${transport_label}" \
       --print-link=false --print-metadata=false --terminal-render compact --terminal-indent 4
 else
   box_close

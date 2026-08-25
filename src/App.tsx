@@ -14,6 +14,7 @@ import { createClientId } from "./runtime/clientId";
 import { historySyncCompletionMessage, syncHistoryFromAgent } from "./runtime/historySync";
 import { resolveRuntimeUrl } from "./runtime/runtimeUrl";
 import { runtimeFailureFromError, type RuntimeFailure } from "./runtime/runtimeFailure";
+import { mergeBackgroundSession } from "./runtime/sessionRefresh";
 import {
   needsSessionDetailRefresh,
   SessionDetailCache,
@@ -214,12 +215,17 @@ export function App() {
     const sessionController = new AbortController();
     let sessionCursor = 0;
 
-    function publish(detail: CachedSessionDetail, status: SessionDetailView["status"]) {
+    function publish(detail: CachedSessionDetail, status: SessionDetailView["status"], preserveLiveMessages = false) {
       if (sessionController.signal.aborted) return;
       sessionCursor = Math.max(sessionCursor, detail.snapshotSessionSequence);
       const readState = setSessionReadCursor(readStateRef, selectedSessionId, detail.snapshotSessionSequence);
       const hydrated = toSession(detail.session, detail.runs, readState);
-      setSessionDetails((current) => mapSessionDetail(current, selectedSessionId, { status, session: hydrated }));
+      setSessionDetails((current) => {
+        const session = preserveLiveMessages
+          ? mergeBackgroundSession(current.get(selectedSessionId)?.session, hydrated)
+          : hydrated;
+        return mapSessionDetail(current, selectedSessionId, { status, session });
+      });
       setSessions((current) => current.map((session) => session.id === selectedSessionId
         ? { ...session, title: hydrated.title, preview: hydrated.preview, status: hydrated.status, hasLatestRun: hydrated.hasLatestRun }
         : session));
@@ -249,11 +255,11 @@ export function App() {
       });
     }
 
-    async function refreshSelected() {
+    async function refreshSelected(background = false) {
       const cached = sessionDetailCache.current.peek(runtimeBaseUrl, selectedSessionId);
-      setLoadingState(cached ? "refreshing" : "loading");
+      if (!background) setLoadingState(cached ? "refreshing" : "loading");
       const detail = await sessionDetailCache.current.load(runtimeBaseUrl, selectedSessionId, runtimeClient);
-      publish(detail, "ready");
+      publish(detail, "ready", background);
     }
 
     async function initializeSelected() {
@@ -278,10 +284,10 @@ export function App() {
             initialized = true;
             await initializeSelected();
           }
-          for await (const event of runtimeClient.streamSession(selectedSessionId, sessionCursor, sessionController.signal)) {
+          for await (const event of runtimeClient.watchSession(selectedSessionId, sessionCursor, sessionController.signal)) {
             sessionCursor = Math.max(sessionCursor, Number(event.id) || 0);
             recordEvent("down", event.type, event.runId || selectedSessionId);
-            await refreshSelected();
+            await refreshSelected(true);
           }
         } catch (error) {
           if (sessionController.signal.aborted || isAbortError(error)) return;
@@ -640,7 +646,7 @@ export function App() {
             ) : selectedDetail?.status === "stale-error" ? (
               <small className="toolbar-detail-state toolbar-detail-state-failed"><CircleAlert size={11} />同步失败</small>
             ) : (
-              <small>{agentPresence === "online" ? <Wifi size={11} /> : <WifiOff size={11} />}SSE · {agentPresence === "online" ? "在线" : "离线"}</small>
+              <small>{agentPresence === "online" ? <Wifi size={11} /> : <WifiOff size={11} />}{runtimeClient.transportMode === "poll" ? "HTTP 轮询" : "SSE"} · {agentPresence === "online" ? "在线" : "离线"}</small>
             )}
           </div>
           <div className="toolbar-actions">
@@ -747,7 +753,7 @@ function ensureRunStream(
     try {
       while (!controller.signal.aborted) {
         try {
-          for await (const event of client.streamRun(run.run_id, cursor, controller.signal)) {
+          for await (const event of client.watchRun(run.run_id, cursor, controller.signal)) {
             cursor = Math.max(cursor, Number(event.id) || 0);
             recordEvent("down", event.type, summarizeRuntimeEvent(event));
             applyEvent(sessionId, event);

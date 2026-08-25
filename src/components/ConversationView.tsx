@@ -22,11 +22,12 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, Session, SessionDetailStatus, SourceReference, ToolStep } from "../types";
 import { parseSourceReference, sourceViewerHref } from "../runtime/sourceReference";
-import { activityLabel, compactInline, processSummary, stepCategory } from "./conversationPresentation";
+import { compactInline, processSummary, stepCategory } from "./conversationPresentation";
 import { copyConversationResult, openWechatWithConversationResult } from "./conversationResultActions";
 import { durationBetween, formatTurnDuration } from "./turnDuration";
 import { IconButton } from "./IconButton";
 import { SessionStatusIcon } from "./SessionStatusIcon";
+import { useActivityPresentation } from "./useActivityPresentation";
 import { useConversationScrollGuide } from "./useConversationScrollGuide";
 
 type ConversationViewProps = {
@@ -180,8 +181,6 @@ function MessageView({ message, projectId, onOpenSource }: { message: ChatMessag
   if (!message.content && !message.streaming && !message.toolSteps?.length) return null;
 
   const steps = message.toolSteps ?? [];
-  const activeStep = [...steps].reverse().find((step) => step.status === "running");
-
   return (
     <article
       className={`message message-assistant ${message.streaming ? "message-streaming" : ""}`}
@@ -191,11 +190,9 @@ function MessageView({ message, projectId, onOpenSource }: { message: ChatMessag
     >
       <div className="assistant-rail" aria-hidden="true"><span /></div>
       <div className="assistant-content">
-        {message.content ? <MarkdownResult content={message.content} projectId={projectId} onOpenSource={onOpenSource} /> : !message.streaming ? null : (
-          <p className="streaming-placeholder">正在准备回复</p>
-        )}
-        {message.streaming && <LiveActivity step={activeStep} />}
-        {steps.length > 0 && <ToolSteps steps={steps} />}
+        {message.content && <MarkdownResult content={message.content} projectId={projectId} onOpenSource={onOpenSource} />}
+        {message.streaming && <LiveActivity steps={steps} hasContent={Boolean(message.content)} />}
+        {steps.length > 0 && <ToolSteps steps={steps} streaming={Boolean(message.streaming)} />}
         <div className={`message-result-footer ${message.streaming ? "message-result-footer-live" : ""}`}>
           {!message.streaming && message.content ? <ResultActions content={message.content} /> : <span />}
           <div className="message-result-meta">
@@ -308,36 +305,42 @@ function MarkdownResult({ content, projectId, onOpenSource }: { content: string;
   );
 }
 
-function LiveActivity({ step }: { step?: ToolStep }) {
-  const label = activityLabel(step);
+function LiveActivity({ steps, hasContent }: { steps: ToolStep[]; hasContent: boolean }) {
+  const presentation = useActivityPresentation(steps, hasContent);
+  const busy = presentation.phase !== "completed";
   return (
-    <div className="live-activity" role="status" aria-label={label}>
-      <span className="live-activity-icon" aria-hidden="true">{step ? toolIcon(step) : <LoaderCircle className="status-loading-icon" size={15} />}</span>
-      <span className="live-activity-copy">{label}</span>
-      <span className="live-activity-dots" aria-hidden="true"><i /><i /><i /></span>
+    <div className={`live-activity live-activity-${presentation.phase}`} role="status" aria-label={presentation.label}>
+      <span className="live-activity-icon" aria-hidden="true">
+        {presentation.phase === "completed"
+          ? <CircleCheck size={15} />
+          : presentation.step ? toolIcon(presentation.step) : <LoaderCircle className="status-loading-icon" size={15} />}
+      </span>
+      <span className="live-activity-copy"><span key={presentation.key}>{presentation.label}</span></span>
+      <span className="live-activity-dots" aria-hidden="true">{busy && <><i /><i /><i /></>}</span>
     </div>
   );
 }
 
-function ToolSteps({ steps }: { steps: ToolStep[] }) {
-  const processState = steps.some((step) => step.status === "running")
+function ToolSteps({ steps, streaming }: { steps: ToolStep[]; streaming: boolean }) {
+  const visibleSteps = useBatchedToolSteps(steps, streaming);
+  const processState = visibleSteps.some((step) => step.status === "running")
     ? "running"
-    : steps.some((step) => step.status === "failed")
+    : visibleSteps.some((step) => step.status === "failed")
       ? "failed"
-      : steps.some((step) => step.status === "interrupted") ? "interrupted" : "completed";
+      : visibleSteps.some((step) => step.status === "interrupted") ? "interrupted" : "completed";
 
   return (
     <details className={`tool-process tool-process-${processState}`}>
       <summary>
-        <span className="tool-process-icon">{summaryIcon(steps)}</span>
+        <span className="tool-process-icon">{summaryIcon(visibleSteps)}</span>
         <span className="tool-process-copy">
           <strong>执行轨迹</strong>
-          <small>{processSummary(steps)}</small>
+          <small>{processSummary(visibleSteps)}</small>
         </span>
         <ChevronDown size={14} className="details-chevron" />
       </summary>
-      <div className="tool-step-list">
-        {steps.map((step) => (
+      <div className="tool-step-list" aria-live="off">
+        {visibleSteps.map((step) => (
           <div className={`tool-step tool-step-${step.status}`} key={step.id}>
             <span className="tool-step-indicator">{stepStatusIcon(step)}</span>
             <span className="tool-step-content">
@@ -352,6 +355,32 @@ function ToolSteps({ steps }: { steps: ToolStep[] }) {
       </div>
     </details>
   );
+}
+
+function useBatchedToolSteps(steps: ToolStep[], streaming: boolean): ToolStep[] {
+  const [visibleSteps, setVisibleSteps] = useState(steps);
+  const pendingRef = useRef(steps);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    pendingRef.current = steps;
+    if (!streaming) {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+      setVisibleSteps(steps);
+      return;
+    }
+    if (timerRef.current !== null) return;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setVisibleSteps(pendingRef.current);
+    }, 120);
+  }, [steps, streaming]);
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
+  return visibleSteps;
 }
 
 function summaryIcon(steps: ToolStep[]) {

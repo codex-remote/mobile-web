@@ -9,14 +9,23 @@ import type {
   StartRunResult,
   SourceSnapshot,
 } from "../types";
-import type { RuntimeClient } from "./RuntimeClient";
+import type { RuntimeClient, RuntimeTransportMode } from "./RuntimeClient";
 import type { AccessTokenProvider } from "../auth/AuthSession";
 import { RuntimeRequestError, type RuntimeFailureKind } from "./runtimeFailure";
 import { SseDecoder } from "./sseDecoder";
 
 type Envelope<T> = { success: true; data: T } | { success: false; error: { code: string; message: string } };
+type PollResult = {
+  events: RuntimeEvent[];
+  next_cursor: number;
+  has_more: boolean;
+  timed_out: boolean;
+  terminal: boolean;
+  status?: string;
+};
 
 const REQUEST_TIMEOUT_MS = 8_000;
+const POLL_REQUEST_TIMEOUT_MS = 25_000;
 
 export class HttpRuntimeClient implements RuntimeClient {
   private readonly baseUrl: string;
@@ -25,8 +34,11 @@ export class HttpRuntimeClient implements RuntimeClient {
 
   private readonly canRefresh: boolean;
 
-  constructor(baseUrl: string, tokenProvider: AccessTokenProvider | string) {
+  readonly transportMode: RuntimeTransportMode;
+
+  constructor(baseUrl: string, tokenProvider: AccessTokenProvider | string, transportMode: RuntimeTransportMode = "sse") {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.transportMode = transportMode;
     if (typeof tokenProvider === "string") {
       this.tokenProvider = { getAccessToken: () => tokenProvider, refresh: async () => tokenProvider };
       this.canRefresh = false;
@@ -80,6 +92,16 @@ export class HttpRuntimeClient implements RuntimeClient {
     return this.stream(`/v1/runtime/sessions/${encodeURIComponent(sessionId)}/events?after=${after}`, "", signal);
   }
 
+  watchRun(runId: string, after = 0, signal?: AbortSignal): AsyncGenerator<RuntimeEvent> {
+    if (this.transportMode === "poll") return this.poll(`/v1/runtime/runs/${encodeURIComponent(runId)}/events:poll`, runId, after, signal);
+    return this.streamRun(runId, after, signal);
+  }
+
+  watchSession(sessionId: string, after = 0, signal?: AbortSignal): AsyncGenerator<RuntimeEvent> {
+    if (this.transportMode === "poll") return this.poll(`/v1/runtime/sessions/${encodeURIComponent(sessionId)}/events:poll`, "", after, signal);
+    return this.streamSession(sessionId, after, signal);
+  }
+
   async cancelRun(runId: string, signal?: AbortSignal): Promise<void> {
     await this.post(`/v1/runtime/runs/${encodeURIComponent(runId)}/cancel`, undefined, undefined, signal);
   }
@@ -125,6 +147,29 @@ export class HttpRuntimeClient implements RuntimeClient {
     }
   }
 
+  private async *poll(path: string, runId: string, after: number, signal?: AbortSignal): AsyncGenerator<RuntimeEvent> {
+    let cursor = Math.max(0, after);
+    while (!signal?.aborted) {
+      const query = new URLSearchParams({ after: String(cursor), wait_ms: "15000", limit: "100" });
+      const response = await this.fetch(`${path}?${query.toString()}`, {
+        headers: { ...this.headers(), Accept: "application/json" },
+      }, signal, POLL_REQUEST_TIMEOUT_MS);
+      const payload = await this.decode<PollResult>(response);
+      for (const rawEvent of payload.events ?? []) {
+        const event = { ...rawEvent };
+        event.runId ||= runId || String(event.run_id ?? "");
+        event.id ||= String(event.agent_sequence ?? event.session_sequence ?? "");
+        event.type ||= "message";
+        const sequence = Number(event.id) || 0;
+        if (sequence <= cursor) continue;
+        cursor = sequence;
+        yield event;
+      }
+      cursor = Math.max(cursor, Number(payload.next_cursor) || 0);
+      if (payload.terminal) return;
+    }
+  }
+
   private async get<T>(path: string, signal?: AbortSignal): Promise<T> {
     const response = await this.fetch(path, { headers: this.headers() }, signal);
     return this.decode<T>(response);
@@ -166,7 +211,7 @@ export class HttpRuntimeClient implements RuntimeClient {
     return payload.data;
   }
 
-  private async fetch(path: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  private async fetch(path: string, init: RequestInit, signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
     const controller = new AbortController();
     let timedOut = false;
     const abortFromCaller = () => controller.abort(signal?.reason);
@@ -175,7 +220,7 @@ export class HttpRuntimeClient implements RuntimeClient {
     const timer = globalThis.setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
 
     try {
       const attemptedToken = this.tokenProvider.getAccessToken();

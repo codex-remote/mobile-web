@@ -30,6 +30,7 @@ ${BOLD}Codex Remote Mobile Web${RESET}
 
 用法:
   ./start.sh test       单独启动人工测试服务，固定端口 4174
+  ./start.sh poll       启动 JSON 轮询入口，固定端口 4175
   ./start.sh codex      单独启动 Codex 调试服务，固定端口 4173
   ./start.sh gateway    启动发布兼容 Gateway，固定端口 18774
   ./start.sh gateway-debug
@@ -62,6 +63,10 @@ case "$mode" in
     port=4174
     label="人工测试"
     ;;
+  poll)
+    port=4175
+    label="JSON 轮询入口"
+    ;;
   codex)
     port=4173
     label="Codex 调试"
@@ -79,7 +84,7 @@ case "$mode" in
     exit 0
     ;;
   *)
-    failure "必须指定启动模式：test、codex、gateway 或 gateway-debug"
+    failure "必须指定启动模式：test、poll、codex、gateway 或 gateway-debug"
     usage >&2
     exit 2
     ;;
@@ -239,6 +244,9 @@ if [[ "$mode" == "gateway" || "$mode" == "gateway-debug" ]]; then
 elif [[ "$mode" == "codex" ]]; then
   info "正在启动带 Loopback 自动鉴权的 Vite 调试服务"
   VITE_CODEXREMOTE_AUTO_AUTH=1 "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &
+elif [[ "$mode" == "poll" ]]; then
+  info "正在启动 JSON 轮询 Vite 入口"
+  VITE_RUNTIME_EVENT_TRANSPORT=poll "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &
 else
   info "正在启动 Vite 开发服务"
   "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &

@@ -16,3 +16,7 @@ Gateway 可以依赖 HTTP Method、版本化 Path、Header、Cookie、Envelope �
 上游路由出现在 OpenAPI 中，不等于已被 Gateway 公开。新增或修改暴露路由时，必须同时审查 `contract_v1.go`、Gateway 测试、浏览器 Adapter 测试和 Run Server 契约。破坏性变化必须建立新契约版本，不能静默改变 `run-server-v1`。
 
 `deploy.sh` 可以在本地工作区编排兄弟仓库的可执行文件，但这种部署期知识不是 Gateway 二进制的运行时依赖。
+
+## 非 SSE 轮询接口（本地已实现）
+
+`/v1/runtime/sessions/{session_id}/events:poll` 与 `/v1/runtime/runs/{run_id}/events:poll` 已进入 `run-server-v1` 的公开 allowlist、OpenAPI 和 Gateway 实现，并通过本地契约测试。现有 Session/Run SSE 路径继续保留；公网限流、Cursor 过期和边缘行为仍需单独验收。

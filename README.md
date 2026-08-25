@@ -2,7 +2,7 @@
 
 Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，交互和视觉语言对齐现有 iPhone App，同时在桌面浏览器提供会话、对话与 Runtime 检查器的稳定三栏布局。
 
-> 当前状态：局域网单标签可用里程碑已于 2026-08-23 通过 iPhone 14 Pro 真机验收。Gateway、Runtime Auth、真实 Run Server HTTP/SSE、Bootstrap、扫码配对、刷新恢复、对话提交、退出和 Mac 端撤销已接通。局域网 HTTP 下的双标签 Refresh Token 轮换竞态、公网 TLS、限流、Cursor 过期和多实例属于后续工作。
+> 当前状态：局域网单标签可用里程碑已于 2026-08-23 通过 iPhone 14 Pro 真机验收。Gateway、Runtime Auth、真实 Run Server HTTP/SSE、JSON 增量轮询入口、Bootstrap、扫码配对、刷新恢复、对话提交、退出和 Mac 端撤销已接通。轮询真机压力、公网 TLS、限流、Cursor 过期和多实例属于后续工作。
 
 ## 本地运行
 
@@ -15,6 +15,7 @@ Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，�
 | 用途 | 命令 | 固定端口 |
 | --- | --- | --- |
 | 人工测试 | `./start.sh test` | `4174` |
+| 轮询入口人工测试 | `npm run dev:poll` | `4175` |
 | Codex 自动调试 | `./start.sh codex` | `4173`，Loopback 自动鉴权 |
 | 发布兼容 Gateway | `./start.sh gateway` | `18774` |
 | 本地调试统一入口 | `./start.sh gateway-debug` | `18874` |
@@ -27,6 +28,8 @@ Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，�
 
 `npm run dev:codex` 和 `npm run dev:test` 保留为对应模式的快捷命令，但根目录 `./start.sh` 是统一入口。
 
+`npm run dev:poll` 使用固定 `4175` 的独立入口选择 JSON 增量轮询；普通 `dev:test` 固定使用 `4174` 并继续使用 SSE。完整 `devrun crweb` 默认构建 SSE 模式，`devrun crweb poll` 构建 Poll 模式并使用独立端口。两种完整栈互斥，不再通过 `/poll` 路由切换传输。
+
 ### 全局启动
 
 本机已将该服务注册到 `devrun`：
@@ -34,17 +37,21 @@ Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，�
 ```bash
 devrun codexremote mobile-web test
 devrun 4174
+devrun codexremote mobile-web poll
+devrun 4175
 devrun codexremote mobile-web-gateway gateway
 devrun 18774
 devrun codexremote mobileweb-stack quick
 devrun 18875
+devrun codexremote mobileweb-stack poll
+devrun 18885
 ```
 
-前两种写法转交给 `./start.sh test`，`devrun 18774` 仍指向发布/兼容 Gateway；`devrun crweb`（或 `devrun 18875`）启动本地隔离的完整调试栈。Gateway 调试模式由部署脚本通过 `service.sh restart gateway-debug` 托管，避免直接启动同一端口的第二个进程。使用 `devrun list` 可以查看所有已注册服务和端口。
+前两种写法转交给 `./start.sh test`，`devrun 18774` 仍指向发布/兼容 Gateway；`devrun crweb`（或 `devrun 18875`）启动由开发版 Runtime Supervisor 托管的 SSE 完整栈，`devrun crweb poll`（或 `devrun 18885`）启动互斥的 Poll 完整栈。SSE 端口为 `18874/18875/18876`，Poll 端口为 `18884/18885/18886`，外层分别使用 `.sse` 和 `.poll` launchd 服务。开发 Supervisor 默认把当前用户主目录 `~` 作为 Mac Agent workspace root；可用 `CODEXREMOTE_WORKSPACE_ROOT` 显式覆盖。Vite 的 `test/codex/poll` 入口仍用于快速前端开发，不属于完整 Supervisor 栈。使用 `devrun list` 可以查看所有已注册服务和端口。
 
-Gateway 采用“部署时构建、运行时只启动产物”的边界。`./deploy.sh` 负责生成 `dist/index.html` 和 `bin/mobile-web-gateway`；本地 `start.sh gateway-debug`、`service.sh ... gateway-debug` 与 `devrun crweb` 只校验并运行这两个产物，使用 `18874` -> `18875` 的本地链路；`start.sh gateway` 和 `devrun 18774` 保留 `18774` 发布兼容端口。缺少产物时会在停止现有监听器之前失败并给出恢复命令。
+Gateway 采用“部署时构建、运行时只启动产物”的边界。`./deploy.sh` 负责生成 `dist/index.html`、`bin/mobile-web-gateway` 和 `bin/codex-remote-dev-supervisor`；`devrun crweb` 通过 Supervisor 运行这些产物，使用 `18874` -> `18875` 的本地链路；`start.sh gateway` 和 `devrun 18774` 保留 `18774` 发布兼容端口。缺少产物时会在停止现有监听器之前失败并给出恢复命令。
 
-人工测试实例由 `launchctl submit` 托管，进程异常退出时会自动重新启动。正常停止或代码维护仍通过外部服务管理命令执行，避免由服务自身同步替换正在承载的进程。
+人工测试实例由 `launchctl submit` 托管；完整 `crweb` 栈由一个开发版 Runtime Supervisor 管理，任一核心子进程异常退出会终止并由 `launchd` 重启整个栈。正常停止或代码维护仍通过外部服务管理命令执行，避免由服务自身同步替换正在承载的进程。
 
 日常维护使用项目内的轻量服务控制入口：
 
@@ -65,7 +72,7 @@ Gateway 采用“部署时构建、运行时只启动产物”的边界。`./dep
 ./deploy.sh
 ```
 
-默认流程同步必要依赖、构建前端/Gateway/Relay/Mac Agent，并按本地 `18875`、Agent、`18874`、4173、4174 的顺序精确重启和检查。成功时终端只显示一条启动进度和一个三行结果框，包含整体状态、手机访问地址和配对有效期；Vite、Go 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。交互式终端中的 `devrun crweb` 会在结果框后生成一个 10 分钟有效、约 45×23 的白底半块二维码，每个 QR 模块都有完整的黑白面积；它不打印包含 code 的长链接或重复元信息。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
+默认流程同步必要依赖、构建前端/Gateway/Relay/Mac Agent/开发 Supervisor，并按当前模式的 Relay、Agent、Gateway 端口精确重启和检查。成功时终端结果框列出当前 `SSE` 或 `POLL` 模式的唯一入口、整体状态和配对有效期；每次启动只生成一张对应模式的一次性二维码。SSE 使用 `18874/18875/18876`，Poll 使用 `18884/18885/18886`，两套完整栈互斥。Vite、Go 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
 
 ```bash
 ./deploy.sh --check
@@ -74,6 +81,8 @@ Gateway 采用“部署时构建、运行时只启动产物”的边界。`./dep
 该脚本仅做本机部署编排，不导入兄弟仓库源码。它必须从 Terminal 或 Codex Desktop 运行；如果检测到当前命令由将被停止的 `mobileweb-debug` Mac Agent Turn 承载，会拒绝同步自重启。全局快捷入口为 `devrun codexremote mobileweb-stack quick`、`devrun 18875` 或 `devrun crweb`，注册项会显式传入 `--quick`。
 
 Gateway 启动与 launchd 排障见 [Gateway Maintenance](docs/gateway-maintenance.md)。
+
+前端视觉、流式活动栏、执行轨迹、动效和移动端审美规范见 [Frontend Visual Guidelines](docs/frontend-visual-guidelines.md)；工作区总规范见 `Codex Remote/03-模块设计/Mobile Web 前端视觉与动效规范.md`。
 
 移动端 Composer 键盘位置、Safari `visualViewport` fallback 与真机复验要求见 [Mobile Keyboard Maintenance](docs/mobile-keyboard-maintenance.md)。
 
@@ -99,6 +108,7 @@ npm run build
 - Codex 本机调试模式在 Loopback 上自动完成标准一次性配对，不需要手工打开配对链接。
 - 回答中的本地源码引用会打开同一前端 host 的代码查看器，读取当前 Mac 工作树并聚焦指定行；普通 Web 链接仍作为外链打开。
 - 支持跨 chunk、多行数据和心跳的 SSE 解码器及单元测试。
+- JSON 增量轮询传输已进入 `RuntimeClient`、Gateway allowlist 和本地测试；真机压力与公网边缘验收仍待完成，规则见 `docs/runtime-polling-transport.md`。
 
 ## 术语规范
 
@@ -106,13 +116,15 @@ npm run build
 
 ## 通信边界
 
-浏览器只通过 Gateway 的同源 HTTP/SSE 契约通信；未来公网在边缘升级为 HTTPS。浏览器不直接连接本地 Run Server `18875`、Redis、PostgreSQL、Mac Agent WSS 或 Admin API。当前链路为：
+浏览器只通过 Gateway 的同源 HTTP、SSE 或 JSON 轮询契约通信；轮询入口已实现，未来公网在边缘升级为 HTTPS。浏览器不直接连接本地 Run Server `18875`、Redis、PostgreSQL、Mac Agent WSS 或 Admin API。当前已实现链路为：
 
 1. 通过同源 HTTP 创建或查询 Session/Run；未来公网 Origin 使用 HTTPS，路径不变。
 2. Session SSE 发现其他客户端创建的新 Run 和状态变化。
 3. Run SSE 接收单个 Run 的内容、工具和终态事件。
 4. 首次加载或游标失效时以 HTTP 快照恢复，再续接 SSE。
 5. 源码查看通过受控的 Runtime POST 接口短暂转发到 Mac Agent，不直接访问 Mac Agent WSS，也不持久化代码。
+
+非 SSE 传输不复用完整 Run 快照，而是使用持久 sequence 的增量 JSON 长轮询。实现前必须同步更新 Run Server OpenAPI、Gateway allowlist、Fixtures 和 `RuntimeClient` Adapter；具体边界见 `docs/runtime-polling-transport.md`。
 
 会话目录只提供标题、状态和 sequence，不代表详情已经加载。页面必须在详情状态为 `ready` 后才能把零 Run 解释为新会话；冷加载、后台刷新、无缓存失败和缓存刷新失败分别显示独立状态。会话内容只写入按 Run Server URL 隔离的 IndexedDB，不进入 `localStorage`，访问令牌也不属于缓存载荷。
 

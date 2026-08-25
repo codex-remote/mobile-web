@@ -36,7 +36,7 @@ export function runtimeFailureFromError(error: unknown, baseUrl: string): Runtim
       return {
         kind: error.kind,
         title: "Run Server 响应超时",
-        detail: `${endpoint} 在 8 秒内没有响应。服务可能尚未启动，或当前网络无法到达它。`,
+        detail: `${endpoint} 在规定时间内没有响应。服务可能尚未启动，或当前网络无法到达它。`,
         action: "检查 Relay 与 Run Server 进程是否正在运行。",
         technicalDetail: technicalDetail || "CONNECTION_TIMEOUT",
       };

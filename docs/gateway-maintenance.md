@@ -1,5 +1,13 @@
 # Gateway Maintenance
 
+## Supervisor long-poll restart
+
+Symptom: `devrun crweb poll` reports that the development Runtime Supervisor failed its health check while the previous Poll page is still open. Relay/Gateway logs may show `context deadline exceeded` during shutdown.
+
+Cause: active `events:poll` requests can remain inside the old Gateway and Relay while launchd is replacing the Supervisor. Reusing `18884/18885/18886` before all three listeners exit creates a false startup failure.
+
+Recovery: rerun `devrun crweb poll`; the launcher now cancels active requests, waits for all three mode ports and the old launchd job to exit, then submits the replacement. A request that exceeds the graceful deadline is force-closed without marking the replacement stack failed. Diagnose with `./service.sh status supervised poll` and `.run/mobileweb/supervisor-poll*.log`.
+
 ## Runtime boundary
 
 `deploy.sh` owns compilation. It builds `dist/index.html` and `bin/mobile-web-gateway` before restarting the Gateway service. `start.sh gateway` and `service.sh ... gateway` only validate and run those artifacts; they do not invoke Go, Node.js or npm.

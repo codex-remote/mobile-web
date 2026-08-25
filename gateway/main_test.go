@@ -31,9 +31,11 @@ func TestAllowedProxyRoutesAreExact(t *testing.T) {
 		{http.MethodGet, "/v1/runtime/sessions/s1/runs"},
 		{http.MethodPost, "/v1/runtime/sessions/s1/runs"},
 		{http.MethodGet, "/v1/runtime/sessions/s1/events"},
+		{http.MethodGet, "/v1/runtime/sessions/s1/events:poll"},
 		{http.MethodGet, "/v1/runtime/runs/r1"},
 		{http.MethodPost, "/v1/runtime/runs/r1/cancel"},
 		{http.MethodGet, "/v1/runtime/runs/r1/events"},
+		{http.MethodGet, "/v1/runtime/runs/r1/events:poll"},
 		{http.MethodPost, "/v1/runtime/bootstrap-syncs"},
 		{http.MethodGet, "/v1/runtime/bootstrap-syncs/b1"},
 		{http.MethodPost, "/v1/runtime/projects/p1/source:read"},
@@ -103,6 +105,11 @@ func TestGatewayServesSPAAndLocalHealth(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "mobile-web") {
 			t.Fatalf("%s response = %d %q", requestPath, response.Code, response.Body.String())
 		}
+	}
+	pollRoute := httptest.NewRecorder()
+	handler.ServeHTTP(pollRoute, httptest.NewRequest(http.MethodGet, "/poll", nil))
+	if pollRoute.Code != http.StatusNotFound {
+		t.Fatalf("legacy poll route = %d, want 404", pollRoute.Code)
 	}
 	health := httptest.NewRecorder()
 	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/gateway/healthz", nil))

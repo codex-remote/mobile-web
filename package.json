@@ -8,6 +8,7 @@
     "dev": "./start.sh",
     "dev:codex": "./start.sh codex",
     "dev:test": "./start.sh test",
+    "dev:poll": "./start.sh poll",
     "gateway": "./start.sh gateway",
     "gateway:test": "cd gateway && go test ./...",
     "build": "tsc -b && vite build",
