@@ -13,7 +13,9 @@ agent_dir="${workspace_dir}/mac-agent"
 run_dir="${project_dir}/.run/mobileweb"
 lock_dir="${run_dir}/deploy.lock"
 go_cache_dir="${CODEXREMOTE_GO_CACHE:-/private/tmp/codexremote-go-cache}"
-relay_port=18775
+gateway_port=18874
+relay_port=18875
+auth_control_port=18876
 run_checks=0
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -122,11 +124,11 @@ build_gateway() {
 }
 
 restart_runtime() {
-  "${agent_dir}/dev" mobileweb
+  "${agent_dir}/dev" mobileweb-debug
 }
 
 restart_gateway() {
-  "${project_dir}/service.sh" restart gateway
+  "${project_dir}/service.sh" restart gateway-debug
 }
 
 restart_codex_web() {
@@ -276,14 +278,18 @@ printf '\n'
 box_open "MOBILE WEB"
 box_row "STATUS" "READY · ${SECONDS}s · AGENT CONNECTED"
 if [[ -n "${lan_ip}" ]]; then
-  box_row "ADDRESS" "http://${lan_ip}:18774/" "${CYAN}"
+  box_row "ADDRESS" "http://${lan_ip}:${gateway_port}/" "${CYAN}"
 else
-  box_row "ADDRESS" "http://127.0.0.1:18774/" "${CYAN}"
+  box_row "ADDRESS" "http://127.0.0.1:${gateway_port}/" "${CYAN}"
 fi
 if [[ -t 1 ]]; then
   box_row "PAIRING" "SCAN QR · ONE TIME · 10 MIN" "${YELLOW}"
   box_close
-  "${relay_dir}/pairqr.sh" --print-link=false --print-metadata=false --terminal-render compact --terminal-indent 4
+  CODEX_REMOTE_GATEWAY_PORT="${gateway_port}" \
+    "${relay_dir}/pairqr.sh" \
+      --origin "http://${lan_ip:-127.0.0.1}:${gateway_port}" \
+      --control-url "http://127.0.0.1:${auth_control_port}" \
+      --print-link=false --print-metadata=false --terminal-render compact --terminal-indent 4
 else
   box_close
   info "非交互输出，跳过一次性配对二维码"

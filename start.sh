@@ -31,7 +31,9 @@ ${BOLD}Codex Remote Mobile Web${RESET}
 用法:
   ./start.sh test       单独启动人工测试服务，固定端口 4174
   ./start.sh codex      单独启动 Codex 调试服务，固定端口 4173
-  ./start.sh gateway    启动统一局域网入口，固定端口 18774
+  ./start.sh gateway    启动发布兼容 Gateway，固定端口 18774
+  ./start.sh gateway-debug
+                       启动本地调试 Gateway，固定端口 18874
   ./start.sh --help     显示帮助
 
 每次只启动所选模式，仅清理该模式对应端口，不影响另一个实例。
@@ -68,12 +70,16 @@ case "$mode" in
     port=18774
     label="Mobile Web Gateway"
     ;;
+  gateway-debug)
+    port=18874
+    label="Mobile Web Debug Gateway"
+    ;;
   -h|--help)
     usage
     exit 0
     ;;
   *)
-    failure "必须指定启动模式：test、codex 或 gateway"
+    failure "必须指定启动模式：test、codex、gateway 或 gateway-debug"
     usage >&2
     exit 2
     ;;
@@ -81,6 +87,12 @@ esac
 
 project_dir="$(cd "$(dirname "$0")" && pwd)"
 cd "$project_dir"
+
+if [[ "$mode" == "gateway-debug" && "${CODEXREMOTE_LAUNCHD_SERVICE:-0}" != "1" ]] \
+  && command -v launchctl >/dev/null 2>&1 \
+  && launchctl print "gui/$(id -u)/com.codexremote.mobile-web.gateway-debug" >/dev/null 2>&1; then
+  exec "${project_dir}/service.sh" restart gateway-debug
+fi
 
 ensure_node_toolchain_path() {
   local candidate_dir
@@ -105,7 +117,7 @@ for required_tool in curl lsof; do
   fi
 done
 
-if [[ "$mode" == "gateway" ]]; then
+if [[ "$mode" == "gateway" || "$mode" == "gateway-debug" ]]; then
   if [[ ! -x "bin/mobile-web-gateway" ]]; then
     failure "缺少已构建的 Gateway：${project_dir}/bin/mobile-web-gateway"
     failure "请先从外部 Terminal 执行 ./deploy.sh，或手动构建 Gateway。"
@@ -181,17 +193,22 @@ stop_port_listeners "$port"
 lan_ip="$(detect_lan_ip)"
 local_url="http://127.0.0.1:$port/"
 ready_url="$local_url"
-if [[ "$mode" == "gateway" ]]; then
+if [[ "$mode" == "gateway" || "$mode" == "gateway-debug" ]]; then
   ready_url="http://127.0.0.1:$port/gateway/healthz"
 fi
 lan_url=""
 if [[ -n "$lan_ip" ]]; then
   lan_url="http://$lan_ip:$port/"
 fi
-if [[ "$mode" == "gateway" ]]; then
-  runtime_url="${GATEWAY_RUN_SERVER_URL:-http://127.0.0.1:18775}（同源代理）"
+if [[ "$mode" == "gateway" || "$mode" == "gateway-debug" ]]; then
+  if [[ "$mode" == "gateway-debug" ]]; then
+    default_gateway_upstream="http://127.0.0.1:18875"
+  else
+    default_gateway_upstream="http://127.0.0.1:18775"
+  fi
+  runtime_url="${GATEWAY_RUN_SERVER_URL:-$default_gateway_upstream}（同源代理）"
 else
-  runtime_url="http://127.0.0.1:18775（Vite /v1 开发代理）"
+  runtime_url="${VITE_CODEXREMOTE_RUN_SERVER_URL:-http://127.0.0.1:18875}（Vite /v1 开发代理）"
 fi
 
 server_pid=""
@@ -213,9 +230,12 @@ printf '项目目录  %s\n' "$project_dir"
 printf 'Run Server %s\n' "$runtime_url"
 printf '%s────────────────────────────────%s\n' "$DIM" "$RESET"
 
-if [[ "$mode" == "gateway" ]]; then
+if [[ "$mode" == "gateway" || "$mode" == "gateway-debug" ]]; then
   info "正在启动 Gateway"
-  "${project_dir}/bin/mobile-web-gateway" --listen "0.0.0.0:$port" --static "${project_dir}/dist" &
+  "${project_dir}/bin/mobile-web-gateway" \
+    --listen "0.0.0.0:$port" \
+    --upstream "${GATEWAY_RUN_SERVER_URL:-$default_gateway_upstream}" \
+    --static "${project_dir}/dist" &
 elif [[ "$mode" == "codex" ]]; then
   info "正在启动带 Loopback 自动鉴权的 Vite 调试服务"
   VITE_CODEXREMOTE_AUTO_AUTH=1 "node_modules/.bin/vite" --host 0.0.0.0 --port "$port" --strictPort --clearScreen false &

@@ -8,7 +8,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "$0")" && pwd)"
 domain="gui/$(id -u)"
-relay_url="http://127.0.0.1:18775/status"
+relay_url="http://127.0.0.1:18875/status"
 run_dir="${project_dir}/.run/mobileweb"
 service_mode="${2:-test}"
 
@@ -28,8 +28,13 @@ case "${service_mode}" in
     port=18774
     log_file="${run_dir}/gateway.log"
     ;;
+  gateway-debug)
+    label="com.codexremote.mobile-web.gateway-debug"
+    port=18874
+    log_file="${run_dir}/gateway-debug.log"
+    ;;
   *)
-    printf '错误：未知服务模式 %s；必须是 test、codex 或 gateway。\n' "${service_mode}" >&2
+    printf '错误：未知服务模式 %s；必须是 test、codex、gateway 或 gateway-debug。\n' "${service_mode}" >&2
     exit 2
     ;;
 esac
@@ -37,7 +42,7 @@ esac
 service_target="${domain}/${label}"
 web_url="http://127.0.0.1:${port}/"
 health_url="${web_url}"
-if [[ "${service_mode}" == "gateway" ]]; then
+if [[ "${service_mode}" == "gateway" || "${service_mode}" == "gateway-debug" ]]; then
   health_url="http://127.0.0.1:${port}/gateway/healthz"
 fi
 
@@ -46,9 +51,9 @@ usage() {
 Codex Remote Mobile Web Service
 
 用法:
-  ./service.sh restart [test|codex|gateway]   由 launchd 重启并持续守护指定服务
-  ./service.sh status [test|codex|gateway]    检查进程、端口、页面、Relay 和 Agent
-  ./service.sh stop [test|codex|gateway]      停止 launchd 托管的指定服务
+  ./service.sh restart [test|codex|gateway|gateway-debug]   由 launchd 重启并持续守护指定服务
+  ./service.sh status [test|codex|gateway|gateway-debug]    检查进程、端口、页面、Relay 和 Agent
+  ./service.sh stop [test|codex|gateway|gateway-debug]      停止 launchd 托管的指定服务
   ./service.sh --help                 显示帮助
 
 省略模式时默认管理 test（4174）。日常重启不启动浏览器。
@@ -131,7 +136,7 @@ require_tools() {
       exit 1
     fi
   done
-  if [[ "${service_mode}" != "gateway" ]]; then
+  if [[ "${service_mode}" != "gateway" && "${service_mode}" != "gateway-debug" ]]; then
     ensure_node_toolchain_path
     for tool in node npm; do
       if ! command -v "${tool}" >/dev/null 2>&1; then
@@ -158,7 +163,7 @@ wait_for_port_clear() {
 submit_service() {
   local service_path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-  if [[ "${service_mode}" != "gateway" ]]; then
+  if [[ "${service_mode}" != "gateway" && "${service_mode}" != "gateway-debug" ]]; then
     service_path="$(dirname "$(command -v node)"):${service_path}"
   fi
   mkdir -p "${run_dir}"
@@ -169,6 +174,7 @@ submit_service() {
     -e "${log_file}" \
     -- /usr/bin/env \
     "NO_COLOR=1" \
+    "CODEXREMOTE_LAUNCHD_SERVICE=1" \
     "PATH=${service_path}" \
     "${project_dir}/start.sh" "${service_mode}"
 }
@@ -178,7 +184,7 @@ wait_for_health() {
 
   for _ in {1..40}; do
     if launchd_running && [[ -n "$(listener_pids)" ]] && web_ready; then
-      if [[ "${service_mode}" == "gateway" ]]; then
+      if [[ "${service_mode}" == "gateway" || "${service_mode}" == "gateway-debug" ]]; then
         return 0
       fi
       status_json="$(relay_status_json || true)"
@@ -233,7 +239,7 @@ status_service() {
     healthy=1
   fi
 
-  if [[ "${service_mode}" != "gateway" ]]; then
+  if [[ "${service_mode}" != "gateway" && "${service_mode}" != "gateway-debug" ]]; then
     status_json="$(relay_status_json || true)"
     if [[ -z "${status_json}" ]]; then
       info "Relay: 不可用"

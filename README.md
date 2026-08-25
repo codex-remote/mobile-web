@@ -16,13 +16,14 @@ Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，�
 | --- | --- | --- |
 | 人工测试 | `./start.sh test` | `4174` |
 | Codex 自动调试 | `./start.sh codex` | `4173`，Loopback 自动鉴权 |
-| 局域网统一入口 | `./start.sh gateway` | `18774` |
+| 发布兼容 Gateway | `./start.sh gateway` | `18774` |
+| 本地调试统一入口 | `./start.sh gateway-debug` | `18874` |
 
 参数是必填项，避免误启或替换错误的实例。启动其中一个模式只处理它自己的固定端口，不会终止另一个模式。脚本会在需要时自动执行 `npm install`，并绑定 `0.0.0.0`、等待页面就绪、输出本机地址与当前 Mac 的局域网 IPv4 地址。非交互环境未加载 Homebrew Shell 配置时，`start.sh` 和 `service.sh` 会自动检查 Apple Silicon 的 `/opt/homebrew/bin` 与 Intel Mac 的 `/usr/local/bin`。
 
-正常入口为 `http://<mac-lan-ip>:18774`。页面只使用当前 Origin 的 `/v1/auth/*` 与 `/v1/runtime/*`，浏览器不再推导或直连 `18775`。`4173/4174` 只用于明确的 Vite 调试，其 `/v1` 由 Vite 开发代理转发到 Loopback Run Server。
+本地快速调试入口为 `http://<mac-lan-ip>:18874`，配套 Run Server 为 `127.0.0.1:18875`、Auth Control 为 `127.0.0.1:18876`。这组端口专供源码工作区的 `devrun crweb`，不会占用 Homebrew `codex-remote` beta/发布版的 `18774/18775/18776`。发布兼容 Gateway 仍由 `./start.sh gateway` 使用 `18774`。页面只使用当前 Origin 的 `/v1/auth/*` 与 `/v1/runtime/*`，浏览器不再推导或直连 Run Server。`4173/4174` 只用于明确的 Vite 调试，其 `/v1` 由 Vite 开发代理转发到本地 `18875`。
 
-`codex` 模式在 `http://127.0.0.1:4173` 或 `http://localhost:4173` 缺少 Refresh Session 时，会通过 Vite 的 Loopback-only 端点自动创建一次性 Pairing Grant，再走标准 Exchange 流程。该端点只在 `./start.sh codex` 中启用，同时校验 Loopback Socket、Host、Origin 和自定义请求头；从局域网 IP 访问 `4173`、人工测试 `4174`、生产构建和 Gateway `18774` 均不会自动签发凭证。
+`codex` 模式在 `http://127.0.0.1:4173` 或 `http://localhost:4173` 缺少 Refresh Session 时，会通过 Vite 的 Loopback-only 端点自动创建一次性 Pairing Grant，再走标准 Exchange 流程。该端点只在 `./start.sh codex` 中启用，同时校验 Loopback Socket、Host、Origin 和自定义请求头；从局域网 IP 访问 `4173`、人工测试 `4174`、生产构建和 Gateway `18874` 均不会自动签发凭证。
 
 `npm run dev:codex` 和 `npm run dev:test` 保留为对应模式的快捷命令，但根目录 `./start.sh` 是统一入口。
 
@@ -35,11 +36,13 @@ devrun codexremote mobile-web test
 devrun 4174
 devrun codexremote mobile-web-gateway gateway
 devrun 18774
+devrun codexremote mobileweb-stack quick
+devrun 18875
 ```
 
-前两种写法转交给 `./start.sh test`，后两种转交给 `./start.sh gateway`。使用 `devrun list` 可以查看所有已注册服务和端口。
+前两种写法转交给 `./start.sh test`，`devrun 18774` 仍指向发布/兼容 Gateway；`devrun crweb`（或 `devrun 18875`）启动本地隔离的完整调试栈。Gateway 调试模式由部署脚本通过 `service.sh restart gateway-debug` 托管，避免直接启动同一端口的第二个进程。使用 `devrun list` 可以查看所有已注册服务和端口。
 
-Gateway 采用“部署时构建、运行时只启动产物”的边界。`./deploy.sh` 负责生成 `dist/index.html` 和 `bin/mobile-web-gateway`；`start.sh gateway`、`service.sh ... gateway` 与 `devrun 18774` 只校验并运行这两个产物，不要求 launchd 环境安装或发现 Go、Node.js、npm。缺少产物时会在停止现有监听器之前失败并给出恢复命令。
+Gateway 采用“部署时构建、运行时只启动产物”的边界。`./deploy.sh` 负责生成 `dist/index.html` 和 `bin/mobile-web-gateway`；本地 `start.sh gateway-debug`、`service.sh ... gateway-debug` 与 `devrun crweb` 只校验并运行这两个产物，使用 `18874` -> `18875` 的本地链路；`start.sh gateway` 和 `devrun 18774` 保留 `18774` 发布兼容端口。缺少产物时会在停止现有监听器之前失败并给出恢复命令。
 
 人工测试实例由 `launchctl submit` 托管，进程异常退出时会自动重新启动。正常停止或代码维护仍通过外部服务管理命令执行，避免由服务自身同步替换正在承载的进程。
 
@@ -62,13 +65,13 @@ Gateway 采用“部署时构建、运行时只启动产物”的边界。`./dep
 ./deploy.sh
 ```
 
-默认流程同步必要依赖、构建前端/Gateway/Relay/Mac Agent，并按 Relay、Agent、Gateway、4173、4174 的顺序精确重启和检查。成功时终端只显示一条启动进度和一个三行结果框，包含整体状态、手机访问地址和配对有效期；Vite、Go 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。交互式终端中的 `devrun crweb` 会在结果框后生成一个 10 分钟有效、约 45×23 的白底半块二维码，每个 QR 模块都有完整的黑白面积；它不打印包含 code 的长链接或重复元信息。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
+默认流程同步必要依赖、构建前端/Gateway/Relay/Mac Agent，并按本地 `18875`、Agent、`18874`、4173、4174 的顺序精确重启和检查。成功时终端只显示一条启动进度和一个三行结果框，包含整体状态、手机访问地址和配对有效期；Vite、Go 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。交互式终端中的 `devrun crweb` 会在结果框后生成一个 10 分钟有效、约 45×23 的白底半块二维码，每个 QR 模块都有完整的黑白面积；它不打印包含 code 的长链接或重复元信息。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
 
 ```bash
 ./deploy.sh --check
 ```
 
-该脚本仅做本机部署编排，不导入兄弟仓库源码。它必须从 Terminal 或 Codex Desktop 运行；如果检测到当前命令由将被停止的 `mobileweb` Mac Agent Turn 承载，会拒绝同步自重启。全局快捷入口为 `devrun codexremote mobileweb-stack quick`、`devrun 18775` 或 `devrun crweb`，注册项会显式传入 `--quick`。
+该脚本仅做本机部署编排，不导入兄弟仓库源码。它必须从 Terminal 或 Codex Desktop 运行；如果检测到当前命令由将被停止的 `mobileweb-debug` Mac Agent Turn 承载，会拒绝同步自重启。全局快捷入口为 `devrun codexremote mobileweb-stack quick`、`devrun 18875` 或 `devrun crweb`，注册项会显式传入 `--quick`。
 
 Gateway 启动与 launchd 排障见 [Gateway Maintenance](docs/gateway-maintenance.md)。
 
@@ -103,7 +106,7 @@ npm run build
 
 ## 通信边界
 
-浏览器只通过 Gateway 的同源 HTTP/SSE 契约通信；未来公网在边缘升级为 HTTPS。浏览器不直接连接 Run Server `18775`、Redis、PostgreSQL、Mac Agent WSS 或 Admin API。当前链路为：
+浏览器只通过 Gateway 的同源 HTTP/SSE 契约通信；未来公网在边缘升级为 HTTPS。浏览器不直接连接本地 Run Server `18875`、Redis、PostgreSQL、Mac Agent WSS 或 Admin API。当前链路为：
 
 1. 通过同源 HTTP 创建或查询 Session/Run；未来公网 Origin 使用 HTTPS，路径不变。
 2. Session SSE 发现其他客户端创建的新 Run 和状态变化。

@@ -2,7 +2,7 @@ import type { Plugin } from "vite";
 
 export const devAutoAuthEndpoint = "/__codexremote__/auth/auto-pair";
 
-const authControlEndpoint = "http://127.0.0.1:18776/v1/auth-control/pairing-grants";
+const authControlEndpoint = "http://127.0.0.1:18876/v1/auth-control/pairing-grants";
 
 export function createDevAutoAuthPlugin(enabled: boolean): Plugin {
   return {
