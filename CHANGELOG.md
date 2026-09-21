@@ -28,6 +28,7 @@
 
 ### Changed
 
+- Adopted Apache License 2.0, organization-wide contribution guidance, CI, and Dependabot updates.
 - Local `devrun crweb` deployments now use the isolated debug port set `18874/18875/18876` for Gateway, Run Server, and Auth Control; the release-compatible `18774/18775/18776` ports remain unchanged.
 - Interactive `devrun crweb` deployments now collapse verbose Vite, Go and launchd output into one progress line and one three-row result panel, preserve per-stage diagnostic logs, and finish with a white half-block QR sized for reliable phone scanning without printing its credential-bearing link; non-interactive deployments skip grant creation.
 - The Gateway exposure policy is now isolated as the versioned `run-server-v1` contract, reported by its health endpoint and documented as a cross-repository compatibility boundary.

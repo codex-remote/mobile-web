@@ -1,5 +1,7 @@
 # Codex Remote Mobile Web
 
+> Codex Remote 是独立开源项目，与 OpenAI 没有关联或背书关系。
+
 Codex Remote 的用户侧 Web 客户端。项目以移动端为第一视口，交互和视觉语言对齐现有 iPhone App，同时在桌面浏览器提供会话、对话与 Runtime 检查器的稳定三栏布局。
 
 > 当前状态：局域网单标签可用里程碑已于 2026-08-23 通过 iPhone 14 Pro 真机验收。Gateway、Runtime Auth、真实 Run Server HTTP/SSE、JSON 增量轮询入口、Bootstrap、扫码配对、刷新恢复、对话提交、退出和 Mac 端撤销已接通。轮询真机压力、公网 TLS、限流、Cursor 过期和多实例属于后续工作。
@@ -148,3 +150,9 @@ gateway/               # 独立 Go Gateway 模块、contract_v1 路由策略与�
 Access Token 只保存在页面内存，Refresh Token 只存在于 `HttpOnly; SameSite=Strict` Cookie；配对码从 Fragment 读取后立即清理。所有 Runtime 路由统一要求 Bearer Token 和 Scope，源码读取要求 `source:read`。公网发布仍必须补齐稳定域名、TLS、`Secure` Cookie、限流和恢复演练。
 
 Codex 调试自动鉴权不是 Runtime 后门：浏览器仍获得普通、可撤销、会轮换的 Token；Vite 只代替人工调用 Loopback Auth Control 创建一次性 Grant。自动入口不进入 Gateway allowlist，也不会出现在生产构建中。
+
+## 开源许可
+
+本仓库采用 [Apache License 2.0](LICENSE)。贡献前请阅读组织级
+[贡献指南](https://github.com/codex-remote/.github/blob/main/CONTRIBUTING.md)；
+版权与项目名称说明见 [NOTICE](NOTICE)。
