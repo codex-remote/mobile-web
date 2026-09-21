@@ -14,6 +14,7 @@ export class RuntimeRequestError extends Error {
     readonly kind: RuntimeFailureKind,
     readonly status?: number,
     readonly code?: string,
+    readonly retryAfterMs?: number,
   ) {
     super(message);
     this.name = "RuntimeRequestError";

@@ -6,6 +6,7 @@ describe("HttpRuntimeClient connection failures", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("aborts an unresponsive request after eight seconds", async () => {
@@ -143,6 +144,54 @@ describe("HttpRuntimeClient connection failures", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=3&wait_ms=15000&limit=100",
       "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=4&wait_ms=15000&limit=100",
+    ]);
+  });
+
+  it("respects Retry-After before retrying a rate-limited poll", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: false,
+        error: { code: "GATEWAY_RATE_LIMITED", message: "rate limited" },
+      }), { status: 429, headers: { "Content-Type": "application/json", "Retry-After": "1" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { events: [{ id: "4", type: "turn.completed", run_id: "run-1" }], next_cursor: 4, terminal: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "poll");
+
+    const result = client.watchRun("run-1", 3).next();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(result).resolves.toMatchObject({ value: { id: "4", type: "turn.completed" }, done: false });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off after a 503 and retries with the same cursor", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: { events: [{ id: "9", type: "turn.completed", run_id: "run-1" }], next_cursor: 9, terminal: true },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new HttpRuntimeClient("https://runtime.example.com", "token", "poll");
+
+    const result = client.watchRun("run-1", 8).next();
+    await vi.advanceTimersByTimeAsync(749);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toMatchObject({ value: { id: "9" }, done: false });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=8&wait_ms=15000&limit=100",
+      "https://runtime.example.com/v1/runtime/runs/run-1/events:poll?after=8&wait_ms=15000&limit=100",
     ]);
   });
 

@@ -72,7 +72,7 @@ Gateway 采用“部署时构建、运行时只启动产物”的边界。`./dep
 ./deploy.sh
 ```
 
-默认流程同步必要依赖、构建前端/Gateway/Relay/Mac Agent/开发 Supervisor，并按当前模式的 Relay、Agent、Gateway 端口精确重启和检查。成功时终端结果框列出当前 `SSE` 或 `POLL` 模式的唯一入口、整体状态和配对有效期；每次启动只生成一张对应模式的一次性二维码。SSE 使用 `18874/18875/18876`，Poll 使用 `18884/18885/18886`，两套完整栈互斥。Vite、Go 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
+默认流程先通过 Relay 仓库的 Compose 配置启动并等待开发 PostgreSQL/Redis 健康，再同步必要依赖、构建前端/Gateway/Relay/Mac Agent/开发 Supervisor，并按当前模式的 Relay、Agent、Gateway 端口精确重启和检查。显式设置 `RUNTIME_DATABASE_URL` 或 `RUNTIME_REDIS_URL` 时会跳过对应默认容器。成功时终端结果框列出当前 `SSE` 或 `POLL` 模式的唯一入口、整体状态和配对有效期；每次启动只生成一张对应模式的一次性二维码。SSE 使用 `18874/18875/18876`，Poll 使用 `18884/18885/18886`，两套完整栈互斥。Vite、Go、Docker Compose 与 launchd 的阶段诊断日志保存在 `.run/mobileweb/*.log`，失败时才回放对应日志末尾 24 行。非交互式执行会跳过授权生成，避免凭证进入 CI 或重定向日志。发布前需要完整验证时使用：
 
 ```bash
 ./deploy.sh --check

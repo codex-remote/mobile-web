@@ -15,6 +15,7 @@ run_dir="${project_dir}/.run/mobileweb"
 lock_dir="${run_dir}/deploy.lock"
 go_cache_dir="${CODEXREMOTE_GO_CACHE:-/private/tmp/codexremote-go-cache}"
 event_transport=sse
+mode_selected=0
 gateway_port=18874
 relay_port=18875
 auth_control_port=18876
@@ -139,6 +140,31 @@ build_dev_supervisor() {
   (cd "${runtime_distribution_dir}" && go build -o "${supervisor_bin}" ./cmd/codex-remote)
 }
 
+start_default_runtime_dependencies() {
+  local services=()
+
+  if [[ -z "${RUNTIME_DATABASE_URL:-}" ]]; then
+    services+=(postgres)
+  fi
+  if [[ -z "${RUNTIME_REDIS_URL:-}" ]]; then
+    services+=(redis)
+  fi
+  if [[ "${#services[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  if ! command -v docker >/dev/null 2>&1; then
+    failure "默认 Runtime 数据服务需要 Docker；请启动 Docker Desktop，或显式设置 RUNTIME_DATABASE_URL 和 RUNTIME_REDIS_URL。"
+    return 1
+  fi
+  if ! docker compose version >/dev/null 2>&1; then
+    failure "未找到 Docker Compose；请安装或启动 Docker Desktop。"
+    return 1
+  fi
+
+  (cd "${relay_dir}" && docker compose up -d --wait "${services[@]}")
+}
+
 stop_legacy_runtime() {
   launchctl remove com.ai-coding-remote.relay.mobileweb-debug >/dev/null 2>&1 || true
   launchctl remove com.ai-coding-remote.mac-agent.mobileweb-debug >/dev/null 2>&1 || true
@@ -148,7 +174,7 @@ stop_legacy_runtime() {
   "${project_dir}/service.sh" stop gateway-debug >/dev/null 2>&1 || true
   "${project_dir}/service.sh" stop codex >/dev/null 2>&1 || true
   "${project_dir}/service.sh" stop test >/dev/null 2>&1 || true
-  for port in "${gateway_port}" "${relay_port}"; do
+  for port in "${gateway_port}" "${relay_port}" "${auth_control_port}"; do
     for _ in {1..40}; do
       [[ -z "$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)" ]] && break
       sleep 0.1
@@ -176,7 +202,7 @@ running_inside_mobileweb_agent() {
   local parent_pid=""
   while [[ "${candidate_pid}" =~ ^[0-9]+$ && "${candidate_pid}" -gt 1 ]]; do
     command="$(ps -p "${candidate_pid}" -o command= 2>/dev/null || true)"
-    if [[ "${command}" == *"mac-agent serve"* && "${command}" == *":${relay_port}/ws/agent"* ]]; then
+    if [[ "${command}" == *"mac-agent serve"* ]]; then
       return 0
     fi
     parent_pid="$(ps -p "${candidate_pid}" -o ppid= 2>/dev/null | tr -d '[:space:]')"
@@ -207,6 +233,7 @@ run_full_checks() {
   wait "${relay_pid}" || failed=1
   wait "${agent_pid}" || failed=1
   wait "${distribution_pid}" || failed=1
+  (cd "${project_dir}" && bash -n deploy.sh service.sh) || failed=1
   (cd "${project_dir}/gateway" && go test ./...) || failed=1
   if [[ "${failed}" -ne 0 ]]; then
     failure "测试未通过，未重启任何服务。"
@@ -224,11 +251,12 @@ while [[ "$#" -gt 0 ]]; do
       shift
       ;;
     sse|poll)
-      if [[ "${event_transport}" != "sse" ]]; then
+      if [[ "${mode_selected}" -eq 1 ]]; then
         failure "只能指定一个传输模式：sse 或 poll。"
         exit 2
       fi
       event_transport="$1"
+      mode_selected=1
       shift
       ;;
     -h|--help)
@@ -286,6 +314,9 @@ fi
 trap 'rmdir "${lock_dir}" 2>/dev/null || true' EXIT
 
 SECONDS=0
+info "正在启动开发 Runtime 数据服务..."
+run_logged "启动开发 Runtime 数据服务" "${run_dir}/runtime-dependencies.log" start_default_runtime_dependencies
+
 if [[ ! -x "${project_dir}/node_modules/.bin/vite" || "${project_dir}/package.json" -nt "${project_dir}/node_modules/.package-lock.json" || "${project_dir}/package-lock.json" -nt "${project_dir}/node_modules/.package-lock.json" ]]; then
   run_logged "同步 Mobile Web 依赖" "${run_dir}/dependencies.log" \
     bash -c 'cd "$1" && npm install --no-audit --no-fund' _ "${project_dir}"

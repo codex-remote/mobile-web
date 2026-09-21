@@ -46,12 +46,14 @@
 - The default Run Server URL now follows the browser's current host instead of embedding the Mac's startup-time LAN address, so DHCP changes no longer leave the Agent falsely offline.
 - Client idempotency IDs now fall back to `crypto.getRandomValues` when `randomUUID` is unavailable on an HTTP LAN origin, keeping history sync, Session creation and Run submission functional from phones.
 - Routine restarts now use layered service checks; full browser smoke testing is reserved for frontend interaction changes.
+- JSON Poll now keeps its durable Cursor while retrying `429`, `502/503`, other 5xx, network and timeout failures with `Retry-After` support, bounded exponential backoff and jitter.
 - Local launchers now discover Node.js and npm in standard Homebrew directories when a non-interactive process does not inherit the user's shell PATH.
 - Local filesystem Markdown links are no longer opened as broken browser paths; recognized references use a hash URL and the Runtime `source:read` API, while normal web links retain external navigation.
 - The default Runtime URL is now the page Origin. Normal browsers no longer discover or connect directly to Run Server port `18775`, and the inspector no longer accepts manually entered Access Tokens.
 
 ### Fixed
 
+- `devrun crweb` now starts and waits for the default development PostgreSQL and Redis containers before launching Relay, so a machine or Docker restart no longer leaves the Supervisor in a Relay health-check loop.
 - Poll transport now owns its continuous long-poll loop: empty timeouts no longer trigger visible Session refreshes, real Session-event refreshes stay in the background, and active streamed messages are protected from a lagging snapshot to prevent periodic layout and scroll jitter.
 - The Supervisor-based `crweb` deployment now rebuilds Relay and Mac Agent before restart, preventing a stale Relay binary from returning 404 for newly added Runtime routes such as `events:poll`.
 - Supervisor restarts now cancel long-poll requests, wait for Gateway/Relay/Auth ports to exit, and force-close any request that exceeds the graceful shutdown deadline instead of failing the replacement stack.

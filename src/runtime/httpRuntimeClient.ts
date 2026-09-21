@@ -26,6 +26,9 @@ type PollResult = {
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const POLL_REQUEST_TIMEOUT_MS = 25_000;
+const POLL_RETRY_BASE_MS = 750;
+const POLL_RETRY_MAX_MS = 15_000;
+const POLL_RETRY_AFTER_MAX_MS = 5 * 60_000;
 
 export class HttpRuntimeClient implements RuntimeClient {
   private readonly baseUrl: string;
@@ -149,24 +152,34 @@ export class HttpRuntimeClient implements RuntimeClient {
 
   private async *poll(path: string, runId: string, after: number, signal?: AbortSignal): AsyncGenerator<RuntimeEvent> {
     let cursor = Math.max(0, after);
+    let retryAttempt = 0;
     while (!signal?.aborted) {
-      const query = new URLSearchParams({ after: String(cursor), wait_ms: "15000", limit: "100" });
-      const response = await this.fetch(`${path}?${query.toString()}`, {
-        headers: { ...this.headers(), Accept: "application/json" },
-      }, signal, POLL_REQUEST_TIMEOUT_MS);
-      const payload = await this.decode<PollResult>(response);
-      for (const rawEvent of payload.events ?? []) {
-        const event = { ...rawEvent };
-        event.runId ||= runId || String(event.run_id ?? "");
-        event.id ||= String(event.agent_sequence ?? event.session_sequence ?? "");
-        event.type ||= "message";
-        const sequence = Number(event.id) || 0;
-        if (sequence <= cursor) continue;
-        cursor = sequence;
-        yield event;
+      try {
+        const query = new URLSearchParams({ after: String(cursor), wait_ms: "15000", limit: "100" });
+        const response = await this.fetch(`${path}?${query.toString()}`, {
+          headers: { ...this.headers(), Accept: "application/json" },
+        }, signal, POLL_REQUEST_TIMEOUT_MS);
+        const payload = await this.decode<PollResult>(response);
+        retryAttempt = 0;
+        for (const rawEvent of payload.events ?? []) {
+          const event = { ...rawEvent };
+          event.runId ||= runId || String(event.run_id ?? "");
+          event.id ||= String(event.agent_sequence ?? event.session_sequence ?? "");
+          event.type ||= "message";
+          const sequence = Number(event.id) || 0;
+          if (sequence <= cursor) continue;
+          cursor = sequence;
+          yield event;
+        }
+        cursor = Math.max(cursor, Number(payload.next_cursor) || 0);
+        if (payload.terminal) return;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        const delay = pollRetryDelay(error, retryAttempt);
+        if (delay === undefined) throw error;
+        retryAttempt += 1;
+        await abortableDelay(delay, signal);
       }
-      cursor = Math.max(cursor, Number(payload.next_cursor) || 0);
-      if (payload.terminal) return;
     }
   }
 
@@ -199,6 +212,7 @@ export class HttpRuntimeClient implements RuntimeClient {
           failureKindForStatus(response.status),
           response.status,
           `HTTP_${response.status}`,
+          parseRetryAfter(response.headers.get("Retry-After")),
         );
       }
       throw new RuntimeRequestError("Run Server 返回了无法解析的响应", "protocol", response.status);
@@ -206,7 +220,7 @@ export class HttpRuntimeClient implements RuntimeClient {
     if (!response.ok || !payload.success) {
       const code = "error" in payload ? payload.error.code : `HTTP_${response.status}`;
       const message = "error" in payload ? payload.error.message : `HTTP ${response.status}`;
-      throw new RuntimeRequestError(message || code, failureKindForStatus(response.status), response.status, code);
+      throw new RuntimeRequestError(message || code, failureKindForStatus(response.status), response.status, code, parseRetryAfter(response.headers.get("Retry-After")));
     }
     return payload.data;
   }
@@ -253,7 +267,7 @@ export class HttpRuntimeClient implements RuntimeClient {
     } catch {
       // The HTTP status remains useful even when an upstream proxy returns HTML.
     }
-    return new RuntimeRequestError(message, failureKindForStatus(response.status), response.status, code);
+    return new RuntimeRequestError(message, failureKindForStatus(response.status), response.status, code, parseRetryAfter(response.headers.get("Retry-After")));
   }
 
   private headers(): Record<string, string> {
@@ -280,4 +294,44 @@ function failureKindForStatus(status: number): RuntimeFailureKind {
 
 function isTerminal(type: string): boolean {
   return type === "turn.completed" || type === "turn.failed" || type === "turn.interrupted";
+}
+
+function pollRetryDelay(error: unknown, attempt: number): number | undefined {
+  if (!(error instanceof RuntimeRequestError)) return undefined;
+  const retryable = error.status === 429
+    || error.status === 502
+    || error.status === 503
+    || (error.status !== undefined && error.status >= 500)
+    || error.kind === "network"
+    || error.kind === "timeout";
+  if (!retryable) return undefined;
+  if (error.retryAfterMs !== undefined) {
+    return Math.min(POLL_RETRY_AFTER_MAX_MS, Math.max(0, error.retryAfterMs));
+  }
+  const exponential = Math.min(POLL_RETRY_MAX_MS, POLL_RETRY_BASE_MS * (2 ** Math.min(attempt, 8)));
+  return Math.round(exponential * (0.75 + Math.random() * 0.5));
+}
+
+function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return undefined;
+  return Math.max(0, date - now);
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException("aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      globalThis.clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+  });
 }
