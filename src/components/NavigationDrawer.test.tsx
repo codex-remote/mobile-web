@@ -28,6 +28,7 @@ describe("NavigationDrawer", () => {
     expect(html).toContain('aria-label="正在同步历史会话"');
     expect(html).toContain('aria-label="历史会话同步进度"');
     expect(html).not.toContain("Run Server ·");
+    expect(html).toContain('src="/brand-mark.png"');
     expect(html.indexOf("Lee 的 MacBook Pro")).toBeLessThan(html.indexOf('aria-label="正在同步历史会话"'));
     expect(html.indexOf('aria-label="正在同步历史会话"')).toBeLessThan(html.indexOf('aria-label="在线"'));
   });

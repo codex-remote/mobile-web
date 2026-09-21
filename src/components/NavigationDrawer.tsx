@@ -85,7 +85,7 @@ export function NavigationDrawer({
     <aside className="navigation-drawer" aria-label="项目与会话" aria-hidden={!open} inert={!open}>
       <div className="drawer-brand-row">
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">C</span>
+          <span className="brand-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" /></span>
           <span>Codex Remote</span>
         </div>
         <IconButton label="关闭导航" className="drawer-close-button" onClick={onClose}>

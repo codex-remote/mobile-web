@@ -230,11 +230,13 @@ summary:focus-visible {
   height: 28px;
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  color: white;
   background: var(--text);
-  font-family: Georgia, serif;
-  font-size: 15px;
-  font-weight: 700;
+}
+
+.brand-mark img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 
 .agent-panel {
