@@ -31,4 +31,6 @@ jobs:
         working-directory: gateway
       - run: go vet ./...
         working-directory: gateway
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+        working-directory: gateway
       - run: bash -n deploy.sh service.sh start.sh
