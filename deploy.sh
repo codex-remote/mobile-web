@@ -368,7 +368,7 @@ if [[ -t 1 ]]; then
       --origin "http://${lan_ip:-127.0.0.1}:${gateway_port}" \
       --control-url "http://127.0.0.1:${auth_control_port}" \
       --name "Mobile Web ${transport_label}" \
-      --print-link=false --print-metadata=false --terminal-render large --terminal-indent 4
+      --print-link=false --print-metadata=false --terminal-render camera --terminal-indent 4
 else
   box_close
   info "非交互输出，跳过一次性配对二维码"
