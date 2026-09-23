@@ -54,7 +54,7 @@
 
 ### Fixed
 
-- Pairing QR output now defaults to a medium camera renderer with pure black/white ANSI cell backgrounds and an extra quiet-zone border, avoiding full-block glyph seams while retaining compact and small overrides.
+- Pairing QR output now defaults to a medium camera renderer with pure black/white ANSI cell backgrounds and standard quiet-zone alignment, avoiding detached finder-pattern borders while retaining compact and small overrides.
 - Upgraded Vitest to 4.1.11 to address the `@vitest/mocker` path traversal advisory before the source repository became public.
 - `devrun crweb` now starts and waits for the default development PostgreSQL and Redis containers before launching Relay, so a machine or Docker restart no longer leaves the Supervisor in a Relay health-check loop.
 - Poll transport now owns its continuous long-poll loop: empty timeouts no longer trigger visible Session refreshes, real Session-event refreshes stay in the background, and active streamed messages are protected from a lagging snapshot to prevent periodic layout and scroll jitter.
