@@ -54,7 +54,7 @@
 
 ### Fixed
 
-- Pairing QR output now uses a high-redundancy, standard-quiet-zone matrix, compact integer-module PNG output, and complete ANSI background cells so the three finder patterns remain closed for phone-camera scanning.
+- Pairing output now uses a consistent colored terminal layout with a clearly separated copyable URL, security warning, and QR section; the high-redundancy matrix and complete ANSI cells keep all three finder patterns closed.
 - Upgraded Vitest to 4.1.11 to address the `@vitest/mocker` path traversal advisory before the source repository became public.
 - `devrun crweb` now starts and waits for the default development PostgreSQL and Redis containers before launching Relay, so a machine or Docker restart no longer leaves the Supervisor in a Relay health-check loop.
 - Poll transport now owns its continuous long-poll loop: empty timeouts no longer trigger visible Session refreshes, real Session-event refreshes stay in the background, and active streamed messages are protected from a lagging snapshot to prevent periodic layout and scroll jitter.
