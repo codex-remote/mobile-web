@@ -22,6 +22,9 @@ func TestAllowedProxyRoutesAreExact(t *testing.T) {
 		{http.MethodPost, "/v1/auth/pairing-grants:exchange"},
 		{http.MethodPost, "/v1/auth/tokens:refresh"},
 		{http.MethodPost, "/v1/auth/sessions/current:revoke"},
+		{http.MethodPost, "/v1/auth/native/pairing-grants:exchange"},
+		{http.MethodPost, "/v1/auth/native/tokens:refresh"},
+		{http.MethodPost, "/v1/auth/native/sessions/current:revoke"},
 		{http.MethodGet, "/v1/auth/me"},
 		{http.MethodGet, "/v1/runtime/healthz"},
 		{http.MethodGet, "/v1/runtime/projects"},
@@ -39,6 +42,7 @@ func TestAllowedProxyRoutesAreExact(t *testing.T) {
 		{http.MethodPost, "/v1/runtime/bootstrap-syncs"},
 		{http.MethodGet, "/v1/runtime/bootstrap-syncs/b1"},
 		{http.MethodPost, "/v1/runtime/projects/p1/source:read"},
+		{http.MethodGet, "/v1/runtime/projects/p1/execution-profiles"},
 	}
 	for _, route := range allowed {
 		if !allowedProxyRoute(route.method, route.path) {

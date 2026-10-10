@@ -13,6 +13,7 @@ func allowedProxyRoute(method, requestPath string) bool {
 	if method == http.MethodPost {
 		switch requestPath {
 		case "/v1/auth/pairing-grants:exchange", "/v1/auth/tokens:refresh", "/v1/auth/sessions/current:revoke",
+			"/v1/auth/native/pairing-grants:exchange", "/v1/auth/native/tokens:refresh", "/v1/auth/native/sessions/current:revoke",
 			"/v1/runtime/sessions", "/v1/runtime/bootstrap-syncs":
 			return true
 		}
@@ -34,6 +35,9 @@ func allowedProxyRoute(method, requestPath string) bool {
 	}
 	if method == http.MethodGet {
 		if len(segments) == 4 && segments[2] == "sessions" {
+			return true
+		}
+		if len(segments) == 5 && segments[2] == "projects" && segments[4] == "execution-profiles" {
 			return true
 		}
 		if len(segments) == 5 && segments[2] == "sessions" && (segments[4] == "runs" || segments[4] == "events" || segments[4] == "events:poll") {
