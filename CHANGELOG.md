@@ -25,6 +25,7 @@
 - Added `gateway` modes to `start.sh` and `service.sh`, Gateway deployment orchestration, and the global `devrun 18774` registration.
 - Added loopback-only automatic pairing for the `4173` Codex debug mode while preserving normal authentication for LAN, test and Gateway origins.
 - Completed the 2026-08-23 iPhone 14 Pro LAN acceptance milestone covering QR pairing, refresh-cookie recovery, real Session/Run interaction, SSE completion, draft preservation, explicit logout and loopback control-plane revocation.
+- Exposed the reviewed native iPhone Auth and project execution-profile routes through the versioned Gateway allowlist without changing browser authentication behavior.
 
 ### Changed
 
@@ -67,5 +68,5 @@
 ### Pending
 
 - Public TLS/domain deployment, rate limits, cursor-expiry handling and multi-instance hardening.
-- iPhone migration and iPhone/mobile-web cross-client validation.
+- Final physical-device iPhone/mobile-web cross-client, background recovery and accessibility validation.
 - Reliable cross-tab refresh coordination for the insecure LAN HTTP origin; the current `navigator.locks` fallback permits concurrent refresh rotation and can trigger server-side replay revocation.

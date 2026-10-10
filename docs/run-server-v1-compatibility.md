@@ -20,3 +20,11 @@ Gateway 可以依赖 HTTP Method、版本化 Path、Header、Cookie、Envelope �
 ## 非 SSE 轮询接口（本地已实现）
 
 `/v1/runtime/sessions/{session_id}/events:poll` 与 `/v1/runtime/runs/{run_id}/events:poll` 已进入 `run-server-v1` 的公开 allowlist、OpenAPI 和 Gateway 实现，并通过本地契约测试。现有 Session/Run SSE 路径继续保留；公网限流、Cursor 过期和边缘行为仍需单独验收。
+
+## iPhone Runtime v1 扩展（本地已实现）
+
+Gateway 明确放行三个 `/v1/auth/native/*` POST 路径和
+`GET /v1/runtime/projects/{project_id}/execution-profiles`。Native Auth 与浏览器 Auth 使用同一
+服务端 Session、Scope、Rotation 和重放撤销语义，但 Refresh Token 只在原生响应体中返回，
+由 iPhone Keychain 保存；浏览器现有 HttpOnly Cookie 合同不变。执行档位读取要求
+`runtime:read`，创建 Run 时的可选 `permission_profile_id` 要求 `runtime:write`。
